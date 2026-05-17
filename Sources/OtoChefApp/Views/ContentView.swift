@@ -1,13 +1,57 @@
 import SwiftUI
 
-struct ContentView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("OtoChef")
-                .font(.largeTitle)
-            Text("Japanese audio, Chinese subtitles, still-image video.")
-                .foregroundStyle(.secondary)
+enum AppSection: String, CaseIterable, Identifiable {
+    case newJob = "新任务"
+    case recentJobs = "最近任务"
+    case settings = "设置"
+    case diagnostics = "诊断"
+
+    var id: String { rawValue }
+
+    var systemImage: String {
+        switch self {
+        case .newJob:
+            return "plus.circle"
+        case .recentJobs:
+            return "clock"
+        case .settings:
+            return "gearshape"
+        case .diagnostics:
+            return "stethoscope"
         }
-        .padding(32)
+    }
+}
+
+struct ContentView: View {
+    @State private var store = JobStore()
+    @SceneStorage("selectedSection") private var selectedSectionRawValue = AppSection.newJob.rawValue
+
+    private var selection: Binding<AppSection> {
+        Binding {
+            AppSection(rawValue: selectedSectionRawValue) ?? .newJob
+        } set: { newValue in
+            selectedSectionRawValue = newValue.rawValue
+        }
+    }
+
+    var body: some View {
+        NavigationSplitView {
+            List(AppSection.allCases, selection: selection) { section in
+                Label(section.rawValue, systemImage: section.systemImage)
+                    .tag(section)
+            }
+            .listStyle(.sidebar)
+        } detail: {
+            switch selection.wrappedValue {
+            case .newJob:
+                NewJobView(store: store)
+            case .recentJobs:
+                ContentUnavailableView("暂无最近任务", systemImage: "clock")
+            case .settings:
+                SettingsView(settings: $store.draft.settings)
+            case .diagnostics:
+                DiagnosticsView(store: store)
+            }
+        }
     }
 }
