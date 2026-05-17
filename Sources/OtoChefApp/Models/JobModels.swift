@@ -53,3 +53,15 @@ enum JobValidationError: String, Equatable, Identifiable {
     }
 }
 
+struct JobArtifacts: Equatable {
+    var workingDirectory: URL
+    var jobFile: URL
+}
+
+struct WorkerLaunchRequest: Equatable {
+    var condaPath: String
+    var environmentName: String
+    var workerDirectory: URL
+    var jobFile: URL
+    var environment: [String: String]
+}
