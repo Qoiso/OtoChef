@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -10,6 +11,11 @@ struct SettingsView: View {
         Form {
             Section("语音识别") {
                 TextField("模型路径或 ID", text: $settings.asr.model)
+                Button {
+                    chooseModelDirectory()
+                } label: {
+                    Label("选择模型文件夹", systemImage: "folder")
+                }
                 Text("推荐：Systran/faster-whisper-large-v3")
                     .foregroundStyle(.secondary)
                 Text("下载：https://huggingface.co/Systran/faster-whisper-large-v3")
@@ -55,5 +61,14 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding(24)
     }
-}
 
+    private func chooseModelDirectory() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.asr.model = url.path
+        }
+    }
+}

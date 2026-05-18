@@ -1,6 +1,8 @@
 .superpowers/
 .worktrees/
 .DS_Store
+Models/
+output/
 dist/
 .build/
 .pytest_cache/

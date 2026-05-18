@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from otochef_worker.asr import segments_from_faster_whisper
+from otochef_worker.asr import resolve_model_reference, segments_from_faster_whisper
 
 
 def test_segments_from_faster_whisper_assigns_stable_ids() -> None:
@@ -14,3 +14,19 @@ def test_segments_from_faster_whisper_assigns_stable_ids() -> None:
     assert [segment.segment_id for segment in segments] == ["seg-0001", "seg-0002"]
     assert segments[0].text == "こんにちは"
     assert segments[1].start == 1.25
+
+
+def test_resolve_model_reference_prefers_local_repo_id_directory(tmp_path) -> None:
+    local_model = tmp_path / "Models" / "Systran:faster-whisper-large-v3"
+    local_model.mkdir(parents=True)
+    (local_model / "model.bin").write_text("fake", encoding="utf-8")
+
+    resolved = resolve_model_reference("Systran/faster-whisper-large-v3", search_roots=[tmp_path])
+
+    assert resolved == str(local_model)
+
+
+def test_resolve_model_reference_keeps_repo_id_when_no_local_directory(tmp_path) -> None:
+    resolved = resolve_model_reference("Example/not-present", search_roots=[tmp_path])
+
+    assert resolved == "Example/not-present"

@@ -32,7 +32,13 @@ def run_pipeline(
     run_video: bool = True,
 ) -> PipelineArtifacts:
     job.output_directory.mkdir(parents=True, exist_ok=True)
-    asr_provider = asr or FasterWhisperASRProvider(job.asr)
+    asr_provider = asr or FasterWhisperASRProvider(
+        job.asr,
+        search_roots=[
+            job.output_directory.parent,
+            job.output_directory.parent.parent,
+        ],
+    )
     translation_provider = translator or OpenAICompatibleTranslationProvider(
         job.translation,
         api_key=os.environ.get("OTOCHEF_TRANSLATION_API_KEY"),
@@ -105,4 +111,3 @@ def run_pipeline(
         ass_path=ass_path,
         output_video_path=output_video_path,
     )
-
