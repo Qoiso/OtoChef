@@ -18,9 +18,10 @@ def main() -> int:
         print(event_json("job_started", message="Job started"), flush=True)
         with open(args.job, "r", encoding="utf-8") as handle:
             job = Job.from_dict(json.load(handle))
-        print(event_json("stage_started", stage="pipeline", message="Processing media"), flush=True)
-        artifacts = run_pipeline(job)
-        print(event_json("artifact_created", stage="video", path=str(artifacts.output_video_path)), flush=True)
+        run_pipeline(
+            job,
+            emit=lambda event_type, **fields: print(event_json(event_type, **fields), flush=True),
+        )
         print(event_json("job_finished", message="Job finished"), flush=True)
         return 0
     except Exception as error:

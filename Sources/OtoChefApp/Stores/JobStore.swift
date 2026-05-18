@@ -7,14 +7,35 @@ final class JobStore {
     var validationErrors: [JobValidationError] = []
     var events: [WorkerEvent] = []
     var isRunning = false
+    var currentProgress: Double? {
+        events.reversed().compactMap(\.progress).first
+    }
+    var statusMessage: String {
+        events.reversed().compactMap(\.message).first ?? (isRunning ? "正在准备任务" : "等待开始")
+    }
 
     private let validator = JobValidator()
     private let writer = JobFileWriter()
     private let worker = PythonWorkerClient()
     private let apiKeyStore: any APIKeyStore
+    private let settingsStore: any AppSettingsStore
+    private let toolFileExists: (String) -> Bool
 
-    init(apiKeyStore: any APIKeyStore = KeychainAPIKeyStore()) {
+    init(
+        apiKeyStore: any APIKeyStore = KeychainAPIKeyStore(),
+        settingsStore: any AppSettingsStore = UserDefaultsAppSettingsStore(),
+        toolFileExists: @escaping (String) -> Bool = FileManager.default.fileExists(atPath:)
+    ) {
         self.apiKeyStore = apiKeyStore
+        self.settingsStore = settingsStore
+        self.toolFileExists = toolFileExists
+        if let settings = try? settingsStore.load() {
+            let resolvedSettings = settings.resolvingAvailableToolDefaults(fileExists: toolFileExists)
+            draft.settings = resolvedSettings
+            if resolvedSettings != settings {
+                try? settingsStore.save(resolvedSettings)
+            }
+        }
     }
 
     func validate() {
@@ -30,6 +51,10 @@ final class JobStore {
         if event.type == .jobFinished || event.type == .stageFailed {
             isRunning = false
         }
+    }
+
+    func saveSettings() {
+        try? settingsStore.save(draft.settings)
     }
 
     func startProcessing() {

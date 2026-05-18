@@ -53,5 +53,8 @@ struct ContentView: View {
                 DiagnosticsView(store: store)
             }
         }
+        .onChange(of: store.draft.settings) {
+            store.saveSettings()
+        }
     }
 }

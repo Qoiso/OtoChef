@@ -75,6 +75,16 @@ def resolve_model_reference(model: str, search_roots: Iterable[Path] | None = No
     return model
 
 
+def effective_runtime_options(settings: ASRSettings) -> tuple[str, str]:
+    device = "cpu" if settings.device == "auto" else settings.device
+    if settings.compute_type != "auto":
+        return device, settings.compute_type
+
+    if device == "cuda":
+        return device, "float16"
+    return device, "int8"
+
+
 class FasterWhisperASRProvider:
     def __init__(self, settings: ASRSettings, search_roots: Iterable[Path] | None = None):
         self.settings = settings
@@ -83,10 +93,14 @@ class FasterWhisperASRProvider:
     def transcribe(self, audio_path: Path) -> list[TranscriptSegment]:
         from faster_whisper import WhisperModel
 
-        device = "auto" if self.settings.device == "auto" else self.settings.device
-        compute_type = "default" if self.settings.compute_type == "auto" else self.settings.compute_type
+        device, compute_type = effective_runtime_options(self.settings)
         model_reference = resolve_model_reference(self.settings.model, self.search_roots)
-        model = WhisperModel(model_reference, device=device, compute_type=compute_type)
+        model = WhisperModel(
+            model_reference,
+            device=device,
+            compute_type=compute_type,
+            cpu_threads=self.settings.cpu_threads,
+        )
         raw_segments, _info = model.transcribe(
             str(audio_path),
             language=self.settings.language,

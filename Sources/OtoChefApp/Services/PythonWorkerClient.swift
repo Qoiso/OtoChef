@@ -4,19 +4,24 @@ final class PythonWorkerClient {
     private let parser = WorkerEventParser()
     private var runningProcess: Process?
 
-    func run(_ request: WorkerLaunchRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: request.condaPath)
-        process.arguments = [
+    static func condaArguments(environmentName: String, jobFile: URL) -> [String] {
+        [
             "run",
+            "--no-capture-output",
             "-n",
-            request.environmentName,
+            environmentName,
             "python",
             "-m",
             "otochef_worker",
             "--job",
-            request.jobFile.path
+            jobFile.path
         ]
+    }
+
+    func run(_ request: WorkerLaunchRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: request.condaPath)
+        process.arguments = Self.condaArguments(environmentName: request.environmentName, jobFile: request.jobFile)
         process.currentDirectoryURL = request.workerDirectory
         var environment = ProcessInfo.processInfo.environment
         request.environment.forEach { key, value in
@@ -44,4 +49,3 @@ final class PythonWorkerClient {
         runningProcess = process
     }
 }
-

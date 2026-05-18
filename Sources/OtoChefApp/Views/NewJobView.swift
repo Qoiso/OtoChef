@@ -33,9 +33,28 @@ struct NewJobView: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label(store.statusMessage, systemImage: store.isRunning ? "gearshape.2" : "checkmark.circle")
+                    Spacer()
+                    if let progress = store.currentProgress {
+                        Text(progress.formatted(.percent.precision(.fractionLength(0))))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                ProgressView(value: store.currentProgress ?? 0, total: 1)
+            }
+
             List(store.events) { event in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(event.message ?? event.type.rawValue)
+                    if let progress = event.progress {
+                        Text(progress.formatted(.percent.precision(.fractionLength(0))))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
                     if let path = event.path {
                         Text(path)
                             .font(.caption)

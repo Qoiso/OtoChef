@@ -20,10 +20,13 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 Text("下载：https://huggingface.co/Systran/faster-whisper-large-v3")
                     .foregroundStyle(.secondary)
+                Text("Mac 本机推荐：设备 cpu，计算类型 int8，Beam Size 1；内存更稳，速度更可控。")
+                    .foregroundStyle(.secondary)
                 TextField("设备", text: $settings.asr.device)
                 TextField("计算类型", text: $settings.asr.computeType)
                 Toggle("启用 VAD", isOn: $settings.asr.vadEnabled)
                 Stepper("Beam Size: \(settings.asr.beamSize)", value: $settings.asr.beamSize, in: 1...10)
+                Stepper("CPU Threads: \(settings.asr.cpuThreads)", value: $settings.asr.cpuThreads, in: 1...10)
             }
 
             Section("翻译") {

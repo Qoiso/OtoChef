@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
-from otochef_worker.asr import resolve_model_reference, segments_from_faster_whisper
+from otochef_worker.asr import effective_runtime_options, resolve_model_reference, segments_from_faster_whisper
+from otochef_worker.models import ASRSettings
 
 
 def test_segments_from_faster_whisper_assigns_stable_ids() -> None:
@@ -30,3 +31,21 @@ def test_resolve_model_reference_keeps_repo_id_when_no_local_directory(tmp_path)
     resolved = resolve_model_reference("Example/not-present", search_roots=[tmp_path])
 
     assert resolved == "Example/not-present"
+
+
+def test_effective_runtime_options_prefers_cpu_int8_for_auto_settings() -> None:
+    settings = ASRSettings(
+        backend="fasterWhisper",
+        model="Systran/faster-whisper-large-v3",
+        device="auto",
+        compute_type="auto",
+        language="ja",
+        vad_enabled=True,
+        beam_size=5,
+        cpu_threads=8,
+    )
+
+    device, compute_type = effective_runtime_options(settings)
+
+    assert device == "cpu"
+    assert compute_type == "int8"

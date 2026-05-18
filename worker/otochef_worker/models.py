@@ -14,6 +14,7 @@ class ASRSettings:
     language: str
     vad_enabled: bool
     beam_size: int
+    cpu_threads: int
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,7 @@ class Job:
                 language=asr["language"],
                 vad_enabled=bool(asr["vadEnabled"]),
                 beam_size=int(asr["beamSize"]),
+                cpu_threads=int(asr.get("cpuThreads", 8)),
             ),
             translation=TranslationSettings(
                 backend=translation["backend"],
@@ -88,4 +90,3 @@ class Job:
                 background_color=video["backgroundColor"],
             ),
         )
-
