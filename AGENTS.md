@@ -10,6 +10,12 @@ ASR is native Swift using WhisperKit/Core ML from `argmaxinc/argmax-oss-swift`; 
 
 Subtitle output is user-selected through `VideoSettings.subtitleOutputMode`: `external` only writes SRT/ASS and does not invoke FFmpeg; `mkvSoftAss` creates `output.mkv` with ASS soft subtitles; `mp4HardSubtitles` creates `output.mp4` with ASS burned in and requires an FFmpeg build with the `subtitles` filter.
 
+## Translation Providers
+
+Translation configuration is provider-specific. Keep base URL, model name, and API key scoped to the selected provider rather than sharing a single global endpoint. Supported provider labels are OpenAI-GPT, Anthropic-Claude, Google-Gemini, DeepSeek, Ollama, LM Studio, and OpenAI-compatible APIs. Store provider secrets in macOS Keychain accounts named `translation-api-key.<provider>`; never write them to settings JSON or `job.json`.
+
+Subtitle translation should preserve the full script context. Do not automatically split remote API translation into parallel batches unless the user explicitly accepts the consistency tradeoff. DeepSeek requests should keep thinking disabled and use JSON object output to avoid slow reasoning responses while preserving structured parsing.
+
 ## Build, Test, and Development Commands
 
 - `swift build`: builds the macOS executable target.
