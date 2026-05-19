@@ -6,12 +6,12 @@ final class AppSettingsTests: XCTestCase {
         let settings = AppSettings.defaults
 
         XCTAssertEqual(settings.asr.backend, .whisperKit)
-        XCTAssertEqual(settings.asr.model, "large-v3-v20240930_626MB")
+        XCTAssertEqual(settings.asr.model, "openai_whisper-large-v3_947MB")
         XCTAssertEqual(settings.asr.modelFolder, "Models/whisperkit")
         XCTAssertEqual(settings.asr.device, "coreML")
         XCTAssertEqual(settings.asr.computeType, "all")
         XCTAssertEqual(settings.asr.beamSize, 1)
-        XCTAssertEqual(settings.asr.cpuThreads, 8)
+        XCTAssertEqual(settings.asr.cpuThreads, 4)
         XCTAssertEqual(settings.conda.environmentName, "otochef")
         XCTAssertEqual(settings.video.width, 1920)
         XCTAssertEqual(settings.video.height, 1080)
@@ -22,9 +22,22 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(
             ASRSettings.whisperKitModelOptions,
             [
+                "openai_whisper-large-v3",
+                "openai_whisper-large-v3_947MB",
                 "large-v3-v20240930_626MB",
-                "large-v3-v20240930_turbo_632MB",
                 "tiny"
+            ]
+        )
+    }
+
+    func testWhisperKitModelChoicesExposeUserFacingQualityTiers() {
+        XCTAssertEqual(
+            ASRSettings.whisperKitModelChoices.map(\.label),
+            [
+                "质量优先：Whisper large-v3 完整模型",
+                "平衡：Whisper large-v3 947MB 压缩模型",
+                "速度优先：Whisper large-v3 turbo 626MB",
+                "测试用：Whisper tiny"
             ]
         )
     }
@@ -116,6 +129,24 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(resolved.asr.modelFolder, "Models/whisperkit")
     }
 
+    func testResolvingDefaultsNormalizesUnsupportedWhisperKitBeamSize() {
+        var settings = AppSettings.defaults
+        settings.asr.beamSize = 4
+
+        let resolved = settings.resolvingAvailableToolDefaults()
+
+        XCTAssertEqual(resolved.asr.beamSize, 1)
+    }
+
+    func testResolvingDefaultsClampsWhisperKitConcurrentSegmentsToUISupportedRange() {
+        var settings = AppSettings.defaults
+        settings.asr.cpuThreads = 8
+
+        let resolved = settings.resolvingAvailableToolDefaults()
+
+        XCTAssertEqual(resolved.asr.cpuThreads, 4)
+    }
+
     func testASRSettingsDecodeDefaultsCPUThreadsForOlderSavedSettings() throws {
         let json = """
         {
@@ -131,7 +162,7 @@ final class AppSettingsTests: XCTestCase {
 
         let settings = try JSONDecoder().decode(ASRSettings.self, from: Data(json.utf8))
 
-        XCTAssertEqual(settings.cpuThreads, 8)
+        XCTAssertEqual(settings.cpuThreads, 4)
     }
 
     func testASRSettingsDecodeDefaultsModelFolderForOlderSavedSettings() throws {

@@ -10,14 +10,14 @@ struct AppSettings: Codable, Equatable {
     static let defaults = AppSettings(
         asr: ASRSettings(
             backend: .whisperKit,
-            model: "large-v3-v20240930_626MB",
+            model: "openai_whisper-large-v3_947MB",
             modelFolder: ASRSettings.defaultWhisperKitModelFolder,
             device: "coreML",
             computeType: "all",
             language: "ja",
             vadEnabled: true,
             beamSize: 1,
-            cpuThreads: 8
+            cpuThreads: ASRSettings.maxWhisperKitConcurrentSegments
         ),
         translation: TranslationSettings(
             backend: .api,
@@ -39,8 +39,15 @@ struct AppSettings: Codable, Equatable {
         }
         if settings.asr.backend == .fasterWhisper {
             settings.asr = AppSettings.defaults.asr
-        } else if settings.asr.modelFolder != ASRSettings.defaultWhisperKitModelFolder {
-            settings.asr.modelFolder = ASRSettings.defaultWhisperKitModelFolder
+        } else {
+            if settings.asr.modelFolder != ASRSettings.defaultWhisperKitModelFolder {
+                settings.asr.modelFolder = ASRSettings.defaultWhisperKitModelFolder
+            }
+            settings.asr.beamSize = 1
+            settings.asr.cpuThreads = min(
+                max(1, settings.asr.cpuThreads),
+                ASRSettings.maxWhisperKitConcurrentSegments
+            )
         }
         return settings
     }
@@ -51,14 +58,38 @@ enum ASRBackend: String, Codable, Equatable {
     case fasterWhisper
 }
 
+struct WhisperKitModelChoice: Equatable, Identifiable {
+    var model: String
+    var label: String
+
+    var id: String { model }
+}
+
 struct ASRSettings: Codable, Equatable {
     static let defaultWhisperKitModelFolder = "Models/whisperkit"
     static let legacyWhisperKitModelFolder = "~/Library/Application Support/OtoChef/Models/whisperkit"
-    static let whisperKitModelOptions = [
-        "large-v3-v20240930_626MB",
-        "large-v3-v20240930_turbo_632MB",
-        "tiny"
+    static let maxWhisperKitConcurrentSegments = 4
+    static let whisperKitModelChoices = [
+        WhisperKitModelChoice(
+            model: "openai_whisper-large-v3",
+            label: "质量优先：Whisper large-v3 完整模型"
+        ),
+        WhisperKitModelChoice(
+            model: "openai_whisper-large-v3_947MB",
+            label: "平衡：Whisper large-v3 947MB 压缩模型"
+        ),
+        WhisperKitModelChoice(
+            model: "large-v3-v20240930_626MB",
+            label: "速度优先：Whisper large-v3 turbo 626MB"
+        ),
+        WhisperKitModelChoice(
+            model: "tiny",
+            label: "测试用：Whisper tiny"
+        )
     ]
+    static var whisperKitModelOptions: [String] {
+        whisperKitModelChoices.map(\.model)
+    }
 
     var backend: ASRBackend
     var model: String
@@ -79,7 +110,7 @@ struct ASRSettings: Codable, Equatable {
         language: String,
         vadEnabled: Bool,
         beamSize: Int,
-        cpuThreads: Int = 8
+        cpuThreads: Int = ASRSettings.maxWhisperKitConcurrentSegments
     ) {
         self.backend = backend
         self.model = model
@@ -114,7 +145,8 @@ struct ASRSettings: Codable, Equatable {
         language = try container.decode(String.self, forKey: .language)
         vadEnabled = try container.decode(Bool.self, forKey: .vadEnabled)
         beamSize = try container.decode(Int.self, forKey: .beamSize)
-        cpuThreads = try container.decodeIfPresent(Int.self, forKey: .cpuThreads) ?? 8
+        cpuThreads = try container.decodeIfPresent(Int.self, forKey: .cpuThreads)
+            ?? Self.maxWhisperKitConcurrentSegments
     }
 }
 

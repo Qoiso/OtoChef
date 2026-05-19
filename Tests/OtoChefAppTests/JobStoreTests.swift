@@ -13,7 +13,7 @@ final class JobStoreTests: XCTestCase {
 
         let store = JobStore(apiKeyStore: MemoryAPIKeyStore(), settingsStore: settingsStore)
 
-        XCTAssertEqual(store.draft.settings.asr.beamSize, 4)
+        XCTAssertEqual(store.draft.settings.asr.beamSize, 1)
         XCTAssertEqual(
             store.draft.settings.translation.configuration(for: .openAICompatible).baseURL,
             "https://persisted.example.com/v1"

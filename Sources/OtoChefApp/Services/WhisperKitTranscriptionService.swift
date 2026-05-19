@@ -1,4 +1,5 @@
 import Foundation
+import CoreML
 import WhisperKit
 
 protocol NativeTranscriptionService {
@@ -32,42 +33,172 @@ struct WhisperKitTranscriptionService: NativeTranscriptionService {
         try fileManager.createDirectory(at: modelBaseURL, withIntermediateDirectories: true)
 
         let localModelFolder = resolveLocalModelFolder(modelBaseURL: modelBaseURL, model: settings.model)
-        let config = WhisperKitConfig(
-            model: localModelFolder == nil ? settings.model : nil,
-            downloadBase: modelBaseURL,
-            modelFolder: localModelFolder?.path,
-            verbose: false,
-            prewarm: true,
-            load: true,
-            download: true
+        let config = Self.makeWhisperKitConfig(
+            modelBaseURL: modelBaseURL,
+            localModelFolder: localModelFolder,
+            settings: settings
         )
         let whisperKit = try await WhisperKit(config)
-        let options = DecodingOptions(
+        let options = Self.makeDecodingOptions(settings: settings)
+        let primarySegments = try await Self.transcribeSegments(
+            audioPath: audioURL.path,
+            whisperKit: whisperKit,
+            options: options
+        )
+        let segments: [WhisperKitTranscriptSegment]
+        if Self.shouldRetrySequentially(
+            segments: primarySegments,
+            workerCount: options.concurrentWorkerCount
+        ) {
+            let retryOptions = Self.makeDecodingOptions(settings: settings, concurrentWorkerCount: 1)
+            let retrySegments = try await Self.transcribeSegments(
+                audioPath: audioURL.path,
+                whisperKit: whisperKit,
+                options: retryOptions
+            )
+            segments = Self.preferredSegments(primary: primarySegments, retry: retrySegments)
+        } else {
+            segments = primarySegments
+        }
+        let data = try encoder.encode(WhisperKitTranscriptEnvelope(segments: segments))
+        try data.write(to: outputURL, options: [.atomic])
+    }
+
+    static func usesVADChunking(settings: ASRSettings) -> Bool {
+        settings.vadEnabled
+    }
+
+    static func effectiveConcurrentWorkerCount(settings: ASRSettings) -> Int {
+        let requested = max(1, settings.cpuThreads)
+        return min(requested, ASRSettings.maxWhisperKitConcurrentSegments)
+    }
+
+    static func makeDecodingOptions(
+        settings: ASRSettings,
+        concurrentWorkerCount: Int? = nil
+    ) -> DecodingOptions {
+        DecodingOptions(
             task: .transcribe,
             language: settings.language.isEmpty ? nil : settings.language,
             temperature: 0.0,
+            usePrefillPrompt: true,
             wordTimestamps: false,
-            concurrentWorkerCount: settings.cpuThreads,
-            chunkingStrategy: settings.vadEnabled ? .vad : nil
+            compressionRatioThreshold: 2.4,
+            logProbThreshold: -1.0,
+            firstTokenLogProbThreshold: nil,
+            noSpeechThreshold: 0.6,
+            concurrentWorkerCount: concurrentWorkerCount ?? Self.effectiveConcurrentWorkerCount(settings: settings),
+            chunkingStrategy: Self.usesVADChunking(settings: settings) ? .vad : nil
         )
-        let results = try await whisperKit.transcribe(
-            audioPath: audioURL.path,
+    }
+
+    static func transcribeSegments(
+        audioPath: String,
+        whisperKit: WhisperKit,
+        options: DecodingOptions
+    ) async throws -> [WhisperKitTranscriptSegment] {
+        let results = await whisperKit.transcribeWithResults(
+            audioPaths: [audioPath],
             decodeOptions: options
         )
-        let segments = results
-            .flatMap(\.segments)
-            .enumerated()
-            .map { index, segment in
+        let partialResults = try results.first?.get() ?? []
+        let mergedResult = TranscriptionUtilities.mergeTranscriptionResults(partialResults)
+        let recognizedSegments = mergedResult.segments
+            .map { segment in
                 WhisperKitTranscriptSegment(
-                    id: "seg-\(String(format: "%04d", index + 1))",
+                    id: "",
                     start: Double(segment.start),
                     end: Double(segment.end),
                     text: Self.sanitizeTranscriptText(segment.text)
                 )
             }
             .filter { !$0.text.isEmpty }
-        let data = try encoder.encode(WhisperKitTranscriptEnvelope(segments: segments))
-        try data.write(to: outputURL, options: [.atomic])
+
+        return Self.filterLikelyHallucinations(recognizedSegments)
+            .enumerated()
+            .map { index, segment in
+                WhisperKitTranscriptSegment(
+                    id: "seg-\(String(format: "%04d", index + 1))",
+                    start: segment.start,
+                    end: segment.end,
+                    text: segment.text
+                )
+            }
+    }
+
+    static func makeComputeOptions() -> ModelComputeOptions {
+        ModelComputeOptions(
+            audioEncoderCompute: .cpuAndNeuralEngine,
+            textDecoderCompute: .cpuAndNeuralEngine
+        )
+    }
+
+    static func makeWhisperKitConfig(
+        modelBaseURL: URL,
+        localModelFolder: URL?,
+        settings: ASRSettings
+    ) -> WhisperKitConfig {
+        WhisperKitConfig(
+            model: localModelFolder == nil ? settings.model : nil,
+            downloadBase: modelBaseURL,
+            modelFolder: localModelFolder?.path,
+            computeOptions: Self.makeComputeOptions(),
+            verbose: false,
+            prewarm: false,
+            load: true,
+            download: true
+        )
+    }
+
+    static func filterLikelyHallucinations(_ segments: [WhisperKitTranscriptSegment]) -> [WhisperKitTranscriptSegment] {
+        segments.filter { !isLikelyFooterHallucination($0.text) }
+    }
+
+    static func hasSuspiciousTimingGaps(
+        _ segments: [WhisperKitTranscriptSegment],
+        maxLeadingGap: Double = 10,
+        maxExpectedGap: Double = 20
+    ) -> Bool {
+        guard let firstSegment = segments.first else {
+            return false
+        }
+        if firstSegment.start > maxLeadingGap {
+            return true
+        }
+        guard segments.count > 1 else {
+            return false
+        }
+        return zip(segments, segments.dropFirst()).contains { previous, current in
+            current.start - previous.end > maxExpectedGap
+        }
+    }
+
+    static func shouldRetrySequentially(
+        segments: [WhisperKitTranscriptSegment],
+        workerCount: Int
+    ) -> Bool {
+        workerCount > 1 && Self.hasSuspiciousTimingGaps(segments)
+    }
+
+    static func preferredSegments(
+        primary: [WhisperKitTranscriptSegment],
+        retry: [WhisperKitTranscriptSegment]
+    ) -> [WhisperKitTranscriptSegment] {
+        if Self.hasSuspiciousTimingGaps(primary) && !Self.hasSuspiciousTimingGaps(retry) {
+            return retry
+        }
+        if retry.count > primary.count * 2 {
+            return retry
+        }
+        return primary
+    }
+
+    private static func isLikelyFooterHallucination(_ text: String) -> Bool {
+        let normalized = text
+            .replacingOccurrences(of: "。", with: "")
+            .replacingOccurrences(of: ".", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized == "ご視聴ありがとうございました"
     }
 
     private func resolveLocalModelFolder(modelBaseURL: URL, model: String) -> URL? {

@@ -11,8 +11,8 @@ struct SettingsView: View {
         Form {
             Section("语音识别") {
                 Picker("WhisperKit 模型", selection: $settings.asr.model) {
-                    ForEach(ASRSettings.whisperKitModelOptions, id: \.self) { model in
-                        Text(model).tag(model)
+                    ForEach(ASRSettings.whisperKitModelChoices) { choice in
+                        Text(choice.label).tag(choice.model)
                     }
                 }
                 Text("模型固定从项目目录 Models/whisperkit 读取，便于统一管理。")
@@ -24,8 +24,12 @@ struct SettingsView: View {
                 Toggle("语音活动检测（VAD）", isOn: $settings.asr.vadEnabled)
                 Text("开启后会自动识别并跳过静音片段，长音频通常更稳。")
                     .foregroundStyle(.secondary)
-                Stepper("同时处理片段数: \(settings.asr.cpuThreads)", value: $settings.asr.cpuThreads, in: 1...16)
-                Text("数值越高速度可能越快，但会占用更多内存；不确定时保持默认 8。")
+                Stepper(
+                    "同时处理片段数: \(settings.asr.cpuThreads)",
+                    value: $settings.asr.cpuThreads,
+                    in: 1...ASRSettings.maxWhisperKitConcurrentSegments
+                )
+                Text("数值越高速度可能越快，但会占用更多内存；WhisperKit/Core ML 当前最多同时处理 4 段。")
                     .foregroundStyle(.secondary)
             }
 
