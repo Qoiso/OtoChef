@@ -6,7 +6,9 @@ OtoChef is a SwiftPM macOS app with a Python media worker. The app target lives 
 
 ## ASR, Models, and Video Output
 
-ASR is native Swift using WhisperKit/Core ML from `argmaxinc/argmax-oss-swift`; do not add new faster-whisper dependencies or route normal macOS transcription through Python. The Swift app writes `transcript.ja.json`, and the Python worker continues with translation, subtitle rendering, and optional FFmpeg video output. Local WhisperKit models live under the ignored project-root directory `Models/whisperkit`; keep model files out of Git. Current expected model names are `large-v3-v20240930_626MB`, `large-v3-v20240930_turbo_632MB`, and `tiny`.
+ASR is native Swift using WhisperKit/Core ML from `argmaxinc/argmax-oss-swift`; do not add new faster-whisper dependencies or route normal macOS transcription through Python. The Swift app writes `transcript.ja.json`, and the Python worker continues with translation, subtitle rendering, and optional FFmpeg video output. Local WhisperKit models live under the ignored project-root directory `Models/whisperkit`; keep model files out of Git. Current expected model names are `openai_whisper-large-v3`, `openai_whisper-large-v3_947MB`, `large-v3-v20240930_626MB`, and `tiny`.
+
+WhisperKit model choices are user-facing quality tiers in `ASRSettings.whisperKitModelChoices`; keep labels, defaults, and tests aligned when changing them. Keep VAD strategy uniform across model tiers. WhisperKit concurrent chunk processing is capped by `ASRSettings.maxWhisperKitConcurrentSegments`; keep the UI stepper, default settings, persisted-settings migration, and `WhisperKitTranscriptionService.effectiveConcurrentWorkerCount` in sync. If parallel WhisperKit output has suspicious leading gaps or large timing gaps, the native service should retry sequentially rather than special-casing one model tier.
 
 Subtitle output is user-selected through `VideoSettings.subtitleOutputMode`: `external` only writes SRT/ASS and does not invoke FFmpeg; `mkvSoftAss` creates `output.mkv` with ASS soft subtitles; `mp4HardSubtitles` creates `output.mp4` with ASS burned in and requires an FFmpeg build with the `subtitles` filter.
 
