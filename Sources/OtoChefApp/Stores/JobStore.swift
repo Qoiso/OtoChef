@@ -16,7 +16,8 @@ final class JobStore {
 
     private let validator = JobValidator()
     private let writer = JobFileWriter()
-    private let worker = PythonWorkerClient()
+    private let worker: any PythonWorkerRunning
+    private let transcriber: any NativeTranscriptionService
     private let apiKeyStore: any APIKeyStore
     private let settingsStore: any AppSettingsStore
     private let toolFileExists: (String) -> Bool
@@ -24,10 +25,14 @@ final class JobStore {
     init(
         apiKeyStore: any APIKeyStore = KeychainAPIKeyStore(),
         settingsStore: any AppSettingsStore = UserDefaultsAppSettingsStore(),
+        worker: any PythonWorkerRunning = PythonWorkerClient(),
+        transcriber: any NativeTranscriptionService = WhisperKitTranscriptionService(),
         toolFileExists: @escaping (String) -> Bool = FileManager.default.fileExists(atPath:)
     ) {
         self.apiKeyStore = apiKeyStore
         self.settingsStore = settingsStore
+        self.worker = worker
+        self.transcriber = transcriber
         self.toolFileExists = toolFileExists
         if let settings = try? settingsStore.load() {
             let resolvedSettings = settings.resolvingAvailableToolDefaults(fileExists: toolFileExists)
@@ -66,21 +71,71 @@ final class JobStore {
         do {
             let job = try validator.makeJob(from: draft)
             let artifacts = try writer.write(job)
-            let apiKey = try apiKeyStore.loadTranslationAPIKey()
-            let workerDirectory = projectRoot()
-                .appendingPathComponent("worker", isDirectory: true)
-            let request = WorkerLaunchRequest(
-                condaPath: draft.settings.conda.executablePath,
-                environmentName: draft.settings.conda.environmentName,
-                workerDirectory: workerDirectory,
-                jobFile: artifacts.jobFile,
-                environment: apiKey.map { ["OTOCHEF_TRANSLATION_API_KEY": $0] } ?? [:]
-            )
             isRunning = true
             events.removeAll()
-            try worker.run(request) { [weak self] event in
-                DispatchQueue.main.async {
-                    self?.append(event: event)
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    if job.settings.asr.backend == .whisperKit {
+                        await MainActor.run {
+                            self.append(
+                                event: WorkerEvent(
+                                    type: .stageStarted,
+                                    stage: "asr",
+                                    message: "正在用 WhisperKit/Core ML 识别日语音频",
+                                    progress: 0.05,
+                                    path: nil
+                                )
+                            )
+                        }
+                        let transcriptURL = artifacts.workingDirectory.appendingPathComponent("transcript.ja.json")
+                        try await transcriber.transcribe(
+                            audioURL: URL(fileURLWithPath: job.audioPath),
+                            settings: job.settings.asr,
+                            outputURL: transcriptURL,
+                            projectRoot: projectRoot()
+                        )
+                        await MainActor.run {
+                            self.append(
+                                event: WorkerEvent(
+                                    type: .artifactCreated,
+                                    stage: "asr",
+                                    message: "WhisperKit 日语转写已完成",
+                                    progress: 0.40,
+                                    path: transcriptURL.path
+                                )
+                            )
+                        }
+                    }
+
+                    let apiKey = try apiKeyStore.loadTranslationAPIKey(for: job.settings.translation.selectedProvider)
+                    let workerDirectory = projectRoot()
+                        .appendingPathComponent("worker", isDirectory: true)
+                    let request = WorkerLaunchRequest(
+                        condaPath: job.settings.conda.executablePath,
+                        environmentName: job.settings.conda.environmentName,
+                        workerDirectory: workerDirectory,
+                        jobFile: artifacts.jobFile,
+                        environment: apiKey.map { ["OTOCHEF_TRANSLATION_API_KEY": $0] } ?? [:]
+                    )
+                    try worker.run(request) { [weak self] event in
+                        DispatchQueue.main.async {
+                            self?.append(event: event)
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.isRunning = false
+                        self.events.append(
+                            WorkerEvent(
+                                type: .stageFailed,
+                                stage: "swift",
+                                message: error.localizedDescription,
+                                progress: nil,
+                                path: nil
+                            )
+                        )
+                    }
                 }
             }
         } catch {
@@ -107,3 +162,5 @@ final class JobStore {
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
+
+extension JobStore: @unchecked Sendable { }

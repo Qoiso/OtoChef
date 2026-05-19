@@ -25,10 +25,11 @@ struct JobValidator {
         if draft.settings.tools.ffmpegPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingFFmpeg)
         }
-        if draft.settings.translation.endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let translationConfiguration = draft.settings.translation.activeConfiguration
+        if translationConfiguration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingTranslationEndpoint)
         }
-        if draft.settings.translation.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if translationConfiguration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingTranslationModel)
         }
 

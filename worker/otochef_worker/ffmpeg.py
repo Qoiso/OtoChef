@@ -51,33 +51,20 @@ def _escape_filter_path(path: Path) -> str:
     return text.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
 
 
-def build_ffmpeg_command(
-    ffmpeg_path: Path,
-    image_path: Path,
-    audio_path: Path,
-    ass_path: Path,
-    srt_path: Path,
-    output_path: Path,
-    video: VideoSettings,
-    burn_subtitles: bool = True,
-    duration_seconds: float | None = None,
-) -> list[str]:
+def _base_video_filter(video: VideoSettings) -> str:
     if video.image_fit == "contain":
-        scale = (
+        return (
             f"scale=w={video.width}:h={video.height}:force_original_aspect_ratio=decrease,"
             f"pad={video.width}:{video.height}:(ow-iw)/2:(oh-ih)/2:color={video.background_color}"
         )
-    else:
-        scale = (
-            f"scale=w={video.width}:h={video.height}:force_original_aspect_ratio=increase,"
-            f"crop={video.width}:{video.height}"
-        )
+    return (
+        f"scale=w={video.width}:h={video.height}:force_original_aspect_ratio=increase,"
+        f"crop={video.width}:{video.height}"
+    )
 
-    video_filter = scale
-    if burn_subtitles:
-        video_filter = f"{scale},subtitles=filename='{_escape_filter_path(ass_path)}'"
 
-    command = [
+def _base_image_audio_command(ffmpeg_path: Path, image_path: Path, audio_path: Path) -> list[str]:
+    return [
         str(ffmpeg_path),
         "-y",
         "-loop",
@@ -89,15 +76,52 @@ def build_ffmpeg_command(
         "-i",
         str(audio_path),
     ]
-    if not burn_subtitles:
-        command.extend(["-i", str(srt_path)])
 
+
+def build_hard_subtitle_mp4_command(
+    ffmpeg_path: Path,
+    image_path: Path,
+    audio_path: Path,
+    ass_path: Path,
+    output_path: Path,
+    video: VideoSettings,
+    duration_seconds: float | None = None,
+) -> list[str]:
+    scale = _base_video_filter(video)
+    video_filter = f"{scale},subtitles=filename='{_escape_filter_path(ass_path)}'"
+    command = _base_image_audio_command(ffmpeg_path, image_path, audio_path)
     command.extend(["-vf", video_filter])
-    if not burn_subtitles:
-        command.extend(["-map", "0:v:0", "-map", "1:a:0", "-map", "2:s:0"])
+    command.extend(_shared_video_audio_encoding_args())
+    if duration_seconds is not None:
+        command.extend(["-t", f"{duration_seconds:.3f}"])
+    else:
+        command.append("-shortest")
 
-    command.extend(
-        [
+    command.append(str(output_path))
+    return command
+
+
+def build_soft_subtitle_mkv_command(
+    ffmpeg_path: Path,
+    image_path: Path,
+    audio_path: Path,
+    ass_path: Path,
+    output_path: Path,
+    video: VideoSettings,
+    duration_seconds: float,
+) -> list[str]:
+    command = _base_image_audio_command(ffmpeg_path, image_path, audio_path)
+    command.extend(["-i", str(ass_path)])
+    command.extend(["-vf", _base_video_filter(video)])
+    command.extend(["-map", "0:v:0", "-map", "1:a:0", "-map", "2:s:0"])
+    command.extend(_shared_video_audio_encoding_args())
+    command.extend(["-c:s", "ass", "-metadata:s:s:0", "language=chi"])
+    command.extend(["-pix_fmt", "yuv420p", "-t", f"{duration_seconds:.3f}", str(output_path)])
+    return command
+
+
+def _shared_video_audio_encoding_args() -> list[str]:
+    return [
         "-c:v",
         "libx264",
         "-tune",
@@ -109,16 +133,40 @@ def build_ffmpeg_command(
         "-b:a",
         "192k",
     ]
-    )
-    if not burn_subtitles:
-        command.extend(["-c:s", "mov_text", "-metadata:s:s:0", "language=chi"])
 
+
+def build_ffmpeg_command(
+    ffmpeg_path: Path,
+    image_path: Path,
+    audio_path: Path,
+    ass_path: Path,
+    srt_path: Path,
+    output_path: Path,
+    video: VideoSettings,
+    burn_subtitles: bool = True,
+    duration_seconds: float | None = None,
+) -> list[str]:
+    if burn_subtitles:
+        return build_hard_subtitle_mp4_command(
+            ffmpeg_path=ffmpeg_path,
+            image_path=image_path,
+            audio_path=audio_path,
+            ass_path=ass_path,
+            output_path=output_path,
+            video=video,
+            duration_seconds=duration_seconds,
+        )
+    command = _base_image_audio_command(ffmpeg_path, image_path, audio_path)
+    command.extend(["-i", str(srt_path)])
+    command.extend(["-vf", _base_video_filter(video)])
+    command.extend(["-map", "0:v:0", "-map", "1:a:0", "-map", "2:s:0"])
+    command.extend(_shared_video_audio_encoding_args())
+    command.extend(["-c:s", "mov_text", "-metadata:s:s:0", "language=chi"])
     command.extend(["-pix_fmt", "yuv420p"])
     if duration_seconds is not None:
         command.extend(["-t", f"{duration_seconds:.3f}"])
     else:
         command.append("-shortest")
-
     command.append(str(output_path))
     return command
 

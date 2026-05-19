@@ -38,7 +38,7 @@ enum JobValidationError: String, Equatable, Identifiable {
         case .missingOutputDirectory:
             return "请选择输出文件夹。"
         case .missingASRModel:
-            return "请填写 faster-whisper 模型路径或模型 ID。"
+            return "请填写 WhisperKit 模型名称。"
         case .missingCondaExecutable:
             return "请配置 conda 可执行文件路径。"
         case .missingCondaEnvironment:

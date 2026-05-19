@@ -1,0 +1,37 @@
+# Repository Guidelines
+
+## Project Structure & Module Organization
+
+OtoChef is a SwiftPM macOS app with a Python media worker. The app target lives in `Sources/OtoChefApp`, organized by `App`, `Views`, `Stores`, and `Services`. Swift tests live in `Tests/OtoChefAppTests`. The Python worker package is in `worker/otochef_worker`, with pytest tests in `worker/tests`. Setup and run helpers are in `script/`. Design notes and implementation plans are under `docs/superpowers/`. Keep sample media and local test inputs out of app or worker source directories.
+
+## ASR, Models, and Video Output
+
+ASR is native Swift using WhisperKit/Core ML from `argmaxinc/argmax-oss-swift`; do not add new faster-whisper dependencies or route normal macOS transcription through Python. The Swift app writes `transcript.ja.json`, and the Python worker continues with translation, subtitle rendering, and optional FFmpeg video output. Local WhisperKit models live under the ignored project-root directory `Models/whisperkit`; keep model files out of Git. Current expected model names are `large-v3-v20240930_626MB`, `large-v3-v20240930_turbo_632MB`, and `tiny`.
+
+Subtitle output is user-selected through `VideoSettings.subtitleOutputMode`: `external` only writes SRT/ASS and does not invoke FFmpeg; `mkvSoftAss` creates `output.mkv` with ASS soft subtitles; `mp4HardSubtitles` creates `output.mp4` with ASS burned in and requires an FFmpeg build with the `subtitles` filter.
+
+## Build, Test, and Development Commands
+
+- `swift build`: builds the macOS executable target.
+- `swift test`: runs the Swift unit tests in `Tests/OtoChefAppTests`; if Command Line Tools cannot find XCTest, run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+- `script/build_and_run.sh`: builds, bundles, ad-hoc signs, and launches `dist/OtoChef.app`.
+- `script/build_and_run.sh --verify`: launches the app and verifies the process starts.
+- `script/setup_conda_env.sh`: creates or updates the `otochef` conda environment from `worker/environment.yml`.
+- `cd worker && pytest`: runs Python worker tests.
+- `cd worker && python -m otochef_worker ...`: runs the worker entry point directly when debugging pipeline behavior.
+
+## Coding Style & Naming Conventions
+
+Use 4-space indentation for Swift and Python. Swift types use `UpperCamelCase`; methods, properties, and local values use `lowerCamelCase`. Keep SwiftUI views in `Views`, state containers in `Stores`, and integration logic in `Services`. Python modules use lowercase snake_case filenames, and functions/variables use `snake_case`. Prefer small, focused services and tests that mirror the behavior being changed.
+
+## Testing Guidelines
+
+Add or update tests for behavior changes. Swift test files should follow the existing `FeatureTests.swift` pattern, such as `JobValidatorTests.swift`. Python tests should follow `test_feature.py`, such as `test_pipeline.py`. Run the relevant targeted suite during development and both `swift test` and `cd worker && pytest` before handing off cross-boundary changes.
+
+## Commit & Pull Request Guidelines
+
+Recent history uses concise imperative subjects, often Conventional Commit prefixes such as `feat:`, `fix:`, and `chore:`. Follow that style: `fix: prefer local faster-whisper models` or `feat: add worker progress events`. Pull requests should describe the user-visible change, list Swift and Python tests run, link related issues or plans, and include screenshots or screen recordings for UI changes.
+
+## Security & Configuration Tips
+
+Do not commit API keys, generated app bundles, build output, or local model/media files. Store secrets through the app settings/keychain flow rather than literals in source. Keep worker dependencies in `worker/pyproject.toml` and environment-level tools such as FFmpeg in `worker/environment.yml`.
