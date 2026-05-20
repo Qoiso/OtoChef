@@ -35,7 +35,7 @@ struct SettingsView: View {
                 if showsAPIKeyControls {
                     LabeledContent("API密钥") {
                         if isEditingAPIKey {
-                            SecureField("API Key", text: $apiKey)
+                            SecureField("", text: $apiKey)
                                 .multilineTextAlignment(.trailing)
                         } else {
                             Text(savedAPIKeyExists ? "••••••••••••••••" : "")
@@ -49,8 +49,9 @@ struct SettingsView: View {
                             Button {
                                 saveAPIKey()
                             } label: {
-                                Label("保存密钥", systemImage: "key")
+                                Label("保存", systemImage: "key")
                             }
+                            .buttonStyle(.borderedProminent)
                             Button {
                                 cancelAPIKeyEditing()
                             } label: {
@@ -61,13 +62,6 @@ struct SettingsView: View {
                                 beginAPIKeyEditing()
                             } label: {
                                 Label("编辑密钥", systemImage: "pencil")
-                            }
-                        }
-                        if savedAPIKeyExists {
-                            Button(role: .destructive) {
-                                clearAPIKey()
-                            } label: {
-                                Label("清除密钥", systemImage: "trash")
                             }
                         }
                     }
@@ -157,30 +151,24 @@ struct SettingsView: View {
 
     private func saveAPIKey() {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else {
-            keychainMessage = "请输入新的 \(selectedProvider.label) 密钥后再保存"
-            return
-        }
         do {
-            try apiKeyStore.saveTranslationAPIKey(trimmedKey, for: selectedProvider)
+            if trimmedKey.isEmpty {
+                if savedAPIKeyExists {
+                    try apiKeyStore.clearTranslationAPIKey(for: selectedProvider)
+                    savedAPIKeyExists = false
+                    keychainMessage = "\(selectedProvider.label) 密钥已清除"
+                } else {
+                    keychainMessage = nil
+                }
+            } else {
+                try apiKeyStore.saveTranslationAPIKey(trimmedKey, for: selectedProvider)
+                savedAPIKeyExists = true
+                keychainMessage = "\(selectedProvider.label) 密钥已保存到本机 Keychain"
+            }
             apiKey = ""
             isEditingAPIKey = false
-            savedAPIKeyExists = true
-            keychainMessage = "\(selectedProvider.label) 密钥已保存到本机 Keychain"
         } catch {
-            keychainMessage = "\(selectedProvider.label) 密钥保存失败：\(error.localizedDescription)"
-        }
-    }
-
-    private func clearAPIKey() {
-        do {
-            try apiKeyStore.clearTranslationAPIKey(for: selectedProvider)
-            apiKey = ""
-            isEditingAPIKey = false
-            savedAPIKeyExists = false
-            keychainMessage = "\(selectedProvider.label) 密钥已清除"
-        } catch {
-            keychainMessage = "\(selectedProvider.label) 密钥清除失败：\(error.localizedDescription)"
+            keychainMessage = "\(selectedProvider.label) 密钥更新失败：\(error.localizedDescription)"
         }
     }
 }
