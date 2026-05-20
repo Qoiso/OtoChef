@@ -15,22 +15,12 @@ struct SettingsView: View {
                         Text(choice.label).tag(choice.model)
                     }
                 }
-                Text("模型固定从项目目录 Models/whisperkit 读取，便于统一管理。")
-                    .foregroundStyle(.secondary)
-                Text("下载：https://huggingface.co/argmaxinc/whisperkit-coreml")
-                    .foregroundStyle(.secondary)
-                Text("Mac 本机推荐：WhisperKit/Core ML。首次加载会编译模型，之后会命中系统缓存。")
-                    .foregroundStyle(.secondary)
                 Toggle("语音活动检测（VAD）", isOn: $settings.asr.vadEnabled)
-                Text("开启后会自动识别并跳过静音片段，长音频通常更稳。")
-                    .foregroundStyle(.secondary)
                 Stepper(
                     "同时处理片段数: \(settings.asr.cpuThreads)",
                     value: $settings.asr.cpuThreads,
                     in: 1...ASRSettings.maxWhisperKitConcurrentSegments
                 )
-                Text("数值越高速度可能越快，但会占用更多内存；WhisperKit/Core ML 当前最多同时处理 4 段。")
-                    .foregroundStyle(.secondary)
             }
 
             Section("翻译") {
@@ -39,8 +29,6 @@ struct SettingsView: View {
                         Text(provider.label).tag(provider)
                     }
                 }
-                Text(providerHint)
-                    .foregroundStyle(.secondary)
                 TextField("Base URL", text: activeBaseURL)
                 TextField("模型", text: activeModel)
                 if showsAPIKeyControls {
@@ -59,8 +47,6 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    Text(savedAPIKeyExists ? "已保存到本机 macOS Keychain，仅 OtoChef 读取这份提供商密钥。" : "密钥会保存在本机 macOS Keychain，不写入任务文件或设置 JSON。")
-                        .foregroundStyle(.secondary)
                 }
                 if let keychainMessage {
                     Text(keychainMessage)
@@ -83,8 +69,6 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
-                Text("默认外挂字幕只生成 SRT/ASS，不合成视频；推荐 MKV + ASS 软字幕。")
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -127,17 +111,6 @@ struct SettingsView: View {
 
     private var apiKeyPlaceholder: String {
         savedAPIKeyExists ? "••••••••••••••••" : "API Key"
-    }
-
-    private var providerHint: String {
-        switch selectedProvider {
-        case .deepSeek, .openAI, .ollama, .lmStudio, .openAICompatible:
-            return "使用 OpenAI 兼容的 /chat/completions 接口。"
-        case .claude:
-            return "使用 Anthropic Messages API。"
-        case .gemini:
-            return "使用 Gemini generateContent API。"
-        }
     }
 
     private func loadAPIKeyState() {
