@@ -1,7 +1,7 @@
 .superpowers/
 .worktrees/
 .DS_Store
-Models/
+/Models/
 output/
 dist/
 .build/

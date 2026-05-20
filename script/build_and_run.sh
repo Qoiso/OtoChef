@@ -16,6 +16,7 @@ APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 PKG_INFO="$APP_CONTENTS/PkgInfo"
 MODULE_CACHE="$ROOT_DIR/.build/module-cache"
+APP_ICON_SOURCE="$ROOT_DIR/Resources/AppIcon.icns"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
@@ -33,6 +34,8 @@ mkdir -p "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 
+cp "$APP_ICON_SOURCE" "$APP_RESOURCES/AppIcon.icns"
+
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -42,6 +45,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>en</string>
   <key>CFBundleExecutable</key>
   <string>$APP_NAME</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleInfoDictionaryVersion</key>
