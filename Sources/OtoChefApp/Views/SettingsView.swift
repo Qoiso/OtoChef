@@ -52,8 +52,6 @@ struct SettingsView: View {
                     Text(keychainMessage)
                         .foregroundStyle(.secondary)
                 }
-                TextEditor(text: $settings.translation.prompt)
-                    .frame(minHeight: 80)
             }
 
             Section("工具") {
@@ -117,7 +115,7 @@ struct SettingsView: View {
         apiKey = ""
         do {
             savedAPIKeyExists = try apiKeyStore.loadTranslationAPIKey(for: selectedProvider) != nil
-            keychainMessage = savedAPIKeyExists ? "\(selectedProvider.label) 密钥已保存在本机 Keychain" : nil
+            keychainMessage = nil
         } catch {
             savedAPIKeyExists = false
             keychainMessage = "Keychain 读取失败：\(error.localizedDescription)"
