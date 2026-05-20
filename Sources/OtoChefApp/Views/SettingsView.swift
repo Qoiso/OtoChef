@@ -4,6 +4,7 @@ struct SettingsView: View {
     @Binding var settings: AppSettings
     @State private var apiKey = ""
     @State private var savedAPIKeyExists = false
+    @State private var isEditingAPIKey = false
     @State private var keychainMessage: String?
     private let apiKeyStore: any APIKeyStore = KeychainAPIKeyStore()
 
@@ -33,15 +34,34 @@ struct SettingsView: View {
                 TextField("模型", text: activeModel)
                 if showsAPIKeyControls {
                     LabeledContent("API密钥") {
-                        SecureField(apiKeyPlaceholder, text: $apiKey)
-                            .multilineTextAlignment(.trailing)
+                        if isEditingAPIKey {
+                            SecureField("API Key", text: $apiKey)
+                                .multilineTextAlignment(.trailing)
+                        } else {
+                            Text(savedAPIKeyExists ? "••••••••••••••••" : "")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
                     }
                     HStack {
                         Spacer()
-                        Button {
-                            saveAPIKey()
-                        } label: {
-                            Label("保存密钥", systemImage: "key")
+                        if isEditingAPIKey {
+                            Button {
+                                saveAPIKey()
+                            } label: {
+                                Label("保存密钥", systemImage: "key")
+                            }
+                            Button {
+                                cancelAPIKeyEditing()
+                            } label: {
+                                Label("取消", systemImage: "xmark")
+                            }
+                        } else {
+                            Button {
+                                beginAPIKeyEditing()
+                            } label: {
+                                Label("编辑密钥", systemImage: "pencil")
+                            }
                         }
                         if savedAPIKeyExists {
                             Button(role: .destructive) {
@@ -111,12 +131,9 @@ struct SettingsView: View {
         selectedProvider.requiresAPIKey || selectedProvider.acceptsOptionalAPIKey || savedAPIKeyExists
     }
 
-    private var apiKeyPlaceholder: String {
-        savedAPIKeyExists ? "••••••••••••••••" : "API Key"
-    }
-
     private func loadAPIKeyState() {
         apiKey = ""
+        isEditingAPIKey = false
         do {
             savedAPIKeyExists = try apiKeyStore.loadTranslationAPIKey(for: selectedProvider) != nil
             keychainMessage = nil
@@ -124,6 +141,18 @@ struct SettingsView: View {
             savedAPIKeyExists = false
             keychainMessage = "Keychain 读取失败：\(error.localizedDescription)"
         }
+    }
+
+    private func beginAPIKeyEditing() {
+        apiKey = ""
+        isEditingAPIKey = true
+        keychainMessage = nil
+    }
+
+    private func cancelAPIKeyEditing() {
+        apiKey = ""
+        isEditingAPIKey = false
+        keychainMessage = nil
     }
 
     private func saveAPIKey() {
@@ -135,6 +164,7 @@ struct SettingsView: View {
         do {
             try apiKeyStore.saveTranslationAPIKey(trimmedKey, for: selectedProvider)
             apiKey = ""
+            isEditingAPIKey = false
             savedAPIKeyExists = true
             keychainMessage = "\(selectedProvider.label) 密钥已保存到本机 Keychain"
         } catch {
@@ -146,6 +176,7 @@ struct SettingsView: View {
         do {
             try apiKeyStore.clearTranslationAPIKey(for: selectedProvider)
             apiKey = ""
+            isEditingAPIKey = false
             savedAPIKeyExists = false
             keychainMessage = "\(selectedProvider.label) 密钥已清除"
         } catch {
