@@ -32,8 +32,12 @@ struct SettingsView: View {
                 TextField("Base URL", text: activeBaseURL)
                 TextField("模型", text: activeModel)
                 if showsAPIKeyControls {
-                    SecureField(apiKeyPlaceholder, text: $apiKey)
+                    LabeledContent("API密钥") {
+                        SecureField(apiKeyPlaceholder, text: $apiKey)
+                            .multilineTextAlignment(.trailing)
+                    }
                     HStack {
+                        Spacer()
                         Button {
                             saveAPIKey()
                         } label: {
