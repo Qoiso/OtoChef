@@ -7,7 +7,7 @@ OtoChef is a macOS subtitle pipeline for Japanese audio and video workflows. The
 ## Features
 
 - Native macOS transcription with WhisperKit/Core ML.
-- Project-local WhisperKit model storage under `Models/whisperkit`.
+- Local WhisperKit model storage under `Models/whisperkit`.
 - Provider-specific translation settings for OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, and OpenAI-compatible APIs.
 - API keys stored in macOS Keychain instead of settings JSON or job files.
 - Subtitle output as external SRT/ASS, MKV with ASS soft subtitles, or MP4 with burned-in subtitles.
@@ -23,20 +23,20 @@ OtoChef is a macOS subtitle pipeline for Japanese audio and video workflows. The
 
 ## Model Setup
 
-OtoChef reads WhisperKit models from the ignored project-root directory:
+OtoChef reads WhisperKit models from a local directory in the project root:
 
 ```text
 Models/whisperkit
 ```
 
-Download compatible Core ML models from [argmaxinc/whisperkit-coreml](https://huggingface.co/argmaxinc/whisperkit-coreml), then place them under that directory. Do not commit model files.
+Download compatible Core ML models from [argmaxinc/whisperkit-coreml](https://huggingface.co/argmaxinc/whisperkit-coreml), then place them under that directory. Model files are large local assets and are not included with the source repository.
 
 Current model choices are:
 
 - `openai_whisper-large-v3` - quality-first full large-v3 model.
 - `openai_whisper-large-v3_947MB` - balanced large-v3 compressed model, used by default.
 - `large-v3-v20240930_626MB` - faster large-v3 turbo model.
-- `tiny` - small model for smoke testing.
+- `tiny` - small model for quick validation.
 
 The first model load may compile Core ML artifacts. Later runs normally reuse the system cache.
 
@@ -94,7 +94,7 @@ Verify that the bundled app starts:
 script/build_and_run.sh --verify
 ```
 
-## Tests
+## Contributor Checks
 
 Run Swift tests:
 
@@ -102,7 +102,7 @@ Run Swift tests:
 swift test
 ```
 
-In the Codex sandbox or when SwiftPM cache permissions are noisy, use:
+If SwiftPM reports cache permission errors, use a project-local module cache:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -118,7 +118,7 @@ cd worker
 /opt/homebrew/bin/conda run -n otochef python -m pytest
 ```
 
-## Repository Layout
+## Source Layout
 
 ```text
 Sources/OtoChefApp/        SwiftPM macOS app target
@@ -127,7 +127,6 @@ worker/otochef_worker/     Python media worker package
 worker/tests/              Python worker tests
 Resources/                 App bundle resources
 script/                    Setup, build, and run helpers
-docs/superpowers/          Design notes and implementation plans
 ```
 
 ## Contributing
