@@ -12,6 +12,23 @@ final class PythonWorkerClientTests: XCTestCase {
         XCTAssertEqual(arguments.last, "/tmp/job.json")
     }
 
+    func testWorkerEnvironmentKeepsOnlyAllowlistedParentValuesAndOverrides() {
+        let environment = PythonWorkerClient.workerEnvironment(
+            base: [
+                "PATH": "/usr/bin",
+                "HOME": "/Users/example",
+                "AWS_SECRET_ACCESS_KEY": "secret",
+                "OTOCHEF_TRANSLATION_API_KEY": "old"
+            ],
+            overrides: ["OTOCHEF_TRANSLATION_API_KEY": "new"]
+        )
+
+        XCTAssertEqual(environment["PATH"], "/usr/bin")
+        XCTAssertEqual(environment["HOME"], "/Users/example")
+        XCTAssertEqual(environment["OTOCHEF_TRANSLATION_API_KEY"], "new")
+        XCTAssertNil(environment["AWS_SECRET_ACCESS_KEY"])
+    }
+
     func testWorkerEventLineBufferPreservesSplitJSONLines() throws {
         var buffer = WorkerEventLineBuffer()
 

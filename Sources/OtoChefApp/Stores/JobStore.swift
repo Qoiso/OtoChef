@@ -15,7 +15,7 @@ final class JobStore {
         events.reversed().compactMap(\.message).first ?? (isRunning ? "正在准备任务" : "等待开始")
     }
 
-    private let validator = JobValidator()
+    private let validator: JobValidator
     private let writer = JobFileWriter()
     private let worker: any PythonWorkerRunning
     private let transcriber: any NativeTranscriptionService
@@ -40,6 +40,7 @@ final class JobStore {
         self.transcriber = transcriber
         self.recentJobStore = recentJobStore
         self.toolFileExists = toolFileExists
+        self.validator = JobValidator(fileExists: toolFileExists)
         recentJobs = (try? recentJobStore.load()) ?? []
         if let settings = try? settingsStore.load() {
             let resolvedSettings = settings.resolvingAvailableToolDefaults(fileExists: toolFileExists)

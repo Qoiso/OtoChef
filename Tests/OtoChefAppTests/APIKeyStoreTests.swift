@@ -16,4 +16,11 @@ final class APIKeyStoreTests: XCTestCase {
         XCTAssertNil(try store.loadTranslationAPIKey(for: .deepSeek))
         XCTAssertEqual(try store.loadTranslationAPIKey(for: .openAI), "openai-key")
     }
+
+    func testKeychainSaveAttributesUseProviderAccountAndAccessibleAfterFirstUnlock() {
+        let query = KeychainAPIKeyStore.attributesForSave(for: .deepSeek)
+
+        XCTAssertEqual(query[kSecAttrAccount as String] as? String, "translation-api-key.deepSeek")
+        XCTAssertEqual(query[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+    }
 }

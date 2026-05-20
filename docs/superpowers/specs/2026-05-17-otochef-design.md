@@ -13,10 +13,9 @@ OtoChef is a native macOS utility for making a Chinese-subtitled video from one 
 
 and produces:
 
-- an MP4 video that uses the still image as the visual track,
 - the original Japanese audio as the audio track,
-- burned-in Chinese subtitles,
-- editable subtitle files beside the video.
+- editable Chinese subtitle files,
+- optionally, an MKV with ASS soft subtitles or an MP4 with burned-in Chinese subtitles.
 
 The MVP does not generate new audio. It does not include TTS, voice cloning, dubbing, batch processing, or a subtitle timeline editor.
 
@@ -25,8 +24,9 @@ The MVP does not generate new audio. It does not include TTS, voice cloning, dub
 The app uses a native SwiftUI shell with an isolated Python media worker:
 
 - SwiftUI macOS app: file selection, output selection, settings, progress display, logs, diagnostics, and output links.
-- Conda Python worker: job validation, ASR, translation orchestration, subtitle generation, and FFmpeg command execution.
-- FFmpeg: static-image video generation, audio muxing or encoding, ASS subtitle burn-in, and MP4 output.
+- Native Swift ASR: WhisperKit/Core ML transcription writes `transcript.ja.json` before the worker starts.
+- Conda Python worker: translation orchestration, subtitle generation, and optional FFmpeg command execution.
+- FFmpeg: optional static-image video generation, audio encoding, ASS soft subtitle muxing, or ASS subtitle burn-in.
 
 Swift starts the worker with a `job.json` file. The worker streams JSONL progress events back to Swift so the UI can update without parsing unstructured logs.
 
@@ -43,50 +43,45 @@ The project provides:
 
 ## ASR Design
 
-The MVP implements one ASR provider: `FasterWhisperASRProvider`.
+The current ASR path is native Swift using WhisperKit/Core ML from `argmaxinc/argmax-oss-swift`. Normal macOS transcription does not route through Python. Swift writes `transcript.ja.json`, then the Python worker consumes that transcript for translation and subtitle/video output.
 
-Recommended model:
+Current project-local model choices:
 
-- `Systran/faster-whisper-large-v3`
-- Download page: <https://huggingface.co/Systran/faster-whisper-large-v3>
+- `openai_whisper-large-v3`
+- `openai_whisper-large-v3_947MB`
+- `large-v3-v20240930_626MB`
+- `tiny`
 
-The setting accepts any value `faster-whisper` can load:
+Models live under the ignored project-root directory `Models/whisperkit`. The Settings UI exposes user-facing quality tiers from `ASRSettings.whisperKitModelChoices`; keep labels, defaults, migration, and tests aligned when changing them.
 
-- a local model directory,
-- a Hugging Face repository ID such as `Systran/faster-whisper-large-v3`,
-- an internal model name such as `large-v3`.
-
-The worker owns an `ASRProvider` interface so future providers can be added without changing the UI flow, subtitle generation, or FFmpeg stage. Possible future providers include WhisperX, whisper.cpp, local ASR servers, or cloud ASR APIs, but they are out of scope for the first version.
-
-The app should expose practical faster-whisper options:
-
-- device: `auto`, `cpu`, or `cuda`,
-- compute type: `auto`, `int8`, `float16`, or another supported explicit value,
-- language default: Japanese,
-- optional VAD toggle,
-- optional beam size.
+The app exposes Japanese language defaults, VAD, and a capped WhisperKit concurrent segment count. If parallel WhisperKit output has suspicious leading gaps or large timing gaps, the native service retries sequentially.
 
 ## Translation Design
 
-Translation supports two backends in the first version:
+Translation supports provider-specific remote or local API-compatible providers:
 
-- Local endpoint,
-- OpenAI-compatible API endpoint.
+- OpenAI-GPT,
+- Anthropic-Claude,
+- Google-Gemini,
+- DeepSeek,
+- Ollama,
+- LM Studio,
+- OpenAI-compatible APIs.
 
 Both backends share the same translation contract: Japanese segments in, Chinese segments out, preserving segment IDs and timing from ASR.
 
 Settings include:
 
-- backend type,
-- base URL or local endpoint URL,
+- provider,
+- provider-scoped base URL,
 - model name,
 - prompt template,
 - timeout and retry limits,
-- API key for API mode.
+- API key when required or optionally accepted by the selected provider.
 
 API keys are stored in the macOS Keychain, not in plain settings files.
 
-The translator may batch segments to reduce overhead, but it must keep output mapped to the original segment IDs. On translation failure, the worker should preserve the ASR transcript and report which translation batch failed.
+Subtitle translation preserves full-script context in one request unless the user explicitly accepts the consistency tradeoff of splitting work. The worker validates that the provider returns every expected segment ID before generating subtitle files.
 
 ## Processing Pipeline
 
@@ -95,10 +90,10 @@ Each job has a working folder containing reproducible intermediate artifacts.
 Pipeline:
 
 1. Validate inputs and configuration.
-2. Run ASR and write `transcript.ja.json`.
-3. Translate segments and write `translation.zh.json`.
+2. Run native WhisperKit ASR and write `transcript.ja.json`.
+3. Launch the worker to translate segments and write `translation.zh.json`.
 4. Generate `subtitles.zh.srt` and `subtitles.zh.ass`.
-5. Run FFmpeg to create the final MP4 with burned-in subtitles.
+5. Depending on `subtitleOutputMode`, either stop after SRT/ASS, create `output.mkv` with ASS soft subtitles, or create `output.mp4` with burned-in ASS subtitles.
 6. Return artifact paths and a completion report to the UI.
 
 Artifacts:
@@ -108,7 +103,7 @@ Artifacts:
 - `translation.zh.json`: Chinese text mapped to original segment IDs.
 - `subtitles.zh.srt`: editable subtitle file.
 - `subtitles.zh.ass`: styled subtitle file used for burn-in.
-- `output.mp4`: final video.
+- `output.mkv` or `output.mp4`: optional final video, depending on subtitle output mode.
 
 JSONL worker events include:
 
@@ -122,13 +117,14 @@ JSONL worker events include:
 
 ## Video And Subtitle Output
 
-Default video behavior:
+Default subtitle/video behavior:
 
 - resolution: `1920x1080`,
 - image fit mode: `contain`,
 - background fill: black,
-- audio: preserve original audio when MP4-compatible; otherwise encode to AAC,
-- subtitle burn-in: use ASS subtitles.
+- subtitle output mode: external SRT/ASS only,
+- optional MKV + ASS soft subtitles,
+- optional MP4 hard subtitles when FFmpeg supports the `subtitles` filter.
 
 Subtitle behavior:
 
@@ -167,7 +163,7 @@ Settings sections:
 - Tools,
 - Output Defaults.
 
-The Settings view includes model recommendation text for `Systran/faster-whisper-large-v3` and the Hugging Face link. Diagnostics can run preflight checks without starting a full job.
+The Settings view includes WhisperKit model guidance and a project-local model folder note. Diagnostics can run preflight checks without starting a full job.
 
 ## Error Handling
 
@@ -201,7 +197,7 @@ Swift tests:
 
 Python tests:
 
-- ASR provider contract with mocked faster-whisper output,
+- native transcript contract and worker behavior when a transcript is already present,
 - translation batching and ID preservation,
 - SRT timestamp formatting,
 - ASS escaping and line wrapping,
@@ -221,5 +217,5 @@ Build and run:
 
 ## References
 
-- Systran faster-whisper large-v3 model card: <https://huggingface.co/Systran/faster-whisper-large-v3>
-- SYSTRAN faster-whisper README: <https://github.com/SYSTRAN/faster-whisper>
+- WhisperKit Core ML models: <https://huggingface.co/argmaxinc/whisperkit-coreml>
+- argmax OSS Swift / WhisperKit: <https://github.com/argmaxinc/argmax-oss-swift>

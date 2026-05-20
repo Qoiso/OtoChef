@@ -16,3 +16,14 @@ def test_render_ass_escapes_newlines() -> None:
 
     assert "PlayResX: 1920" in ass
     assert "Dialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,第一行\\N第二行" in ass
+
+
+def test_render_ass_neutralizes_override_syntax_from_translations() -> None:
+    segments = [SubtitleSegment(segment_id="s1", start=0.0, end=2.0, text=r"{\pos(0,0)}隐藏\N下一行")]
+
+    ass = render_ass(segments, width=1920, height=1080)
+
+    dialogue = ass.split("Dialogue: ", maxsplit=1)[1]
+    assert r"{\pos(0,0)}" not in dialogue
+    assert r"\\pos" not in dialogue
+    assert r"隐藏\N下一行" not in dialogue

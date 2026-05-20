@@ -10,9 +10,26 @@ final class JobValidatorTests: XCTestCase {
             settings: .defaults
         )
 
-        let errors = JobValidator().validate(draft)
+        let errors = JobValidator(fileExists: { _ in true }).validate(draft)
 
         XCTAssertEqual(errors, [.missingAudio])
+    }
+
+    func testValidationFailsWhenSelectedPathsDoNotExist() {
+        let draft = JobDraft(
+            audioURL: URL(fileURLWithPath: "/tmp/audio.wav"),
+            imageURL: URL(fileURLWithPath: "/tmp/image.png"),
+            outputDirectory: URL(fileURLWithPath: "/tmp/out"),
+            settings: .defaults
+        )
+
+        let errors = JobValidator(fileExists: { _ in false }).validate(draft)
+
+        XCTAssertTrue(errors.contains(.missingAudio))
+        XCTAssertTrue(errors.contains(.missingImage))
+        XCTAssertTrue(errors.contains(.missingOutputDirectory))
+        XCTAssertTrue(errors.contains(.missingCondaExecutable))
+        XCTAssertTrue(errors.contains(.missingFFmpeg))
     }
 
     func testValidationFailsWhenTranslationEndpointIsEmpty() {

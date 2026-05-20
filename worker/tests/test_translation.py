@@ -1,5 +1,8 @@
 import json
 
+import pytest
+import requests
+
 from otochef_worker.models import TranslationProviderConfiguration, TranslationSettings
 from otochef_worker.translation import (
     RoutedTranslationProvider,
@@ -50,6 +53,13 @@ def test_parse_translation_response_reports_missing_text_with_segment_id() -> No
         assert "text" in str(error)
     else:
         raise AssertionError("Expected missing text to raise ValueError")
+
+
+def test_parse_translation_response_rejects_duplicate_ids() -> None:
+    content = '[{"id":"s1","text":"你好"},{"id":"s1","text":"重复"}]'
+
+    with pytest.raises(ValueError, match="Duplicate translation id: s1"):
+        parse_translation_response(content)
 
 
 def test_openai_compatible_provider_posts_to_chat_completions(monkeypatch) -> None:
@@ -124,6 +134,42 @@ def test_openai_compatible_provider_does_not_add_deepseek_options_to_other_provi
 
     assert "thinking" not in calls[0][1]["json"]
     assert "response_format" not in calls[0][1]["json"]
+
+
+def test_openai_compatible_provider_retries_transient_request_failures(monkeypatch) -> None:
+    calls = []
+
+    class Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": '[{"id":"s1","text":"你好"}]'}}]}
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        if len(calls) == 1:
+            raise requests.Timeout("slow")
+        return Response()
+
+    monkeypatch.setattr("otochef_worker.translation.requests.post", fake_post)
+    settings = TranslationSettings(
+        backend="api",
+        selected_provider="openAICompatible",
+        provider_configurations=(
+            TranslationProviderConfiguration("openAICompatible", "https://api.example.com/v1", "model-name"),
+        ),
+        prompt="Translate",
+        timeout_seconds=120,
+        retry_limit=1,
+    )
+
+    result = RoutedTranslationProvider(settings, api_key="secret").translate(
+        [TranscriptSegment(segment_id="s1", start=0, end=1, text="こんにちは")]
+    )
+
+    assert result == {"s1": "你好"}
+    assert len(calls) == 2
 
 
 def test_remote_provider_keeps_large_payload_in_one_request_for_context(monkeypatch) -> None:

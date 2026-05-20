@@ -6,6 +6,15 @@ protocol PythonWorkerRunning {
 
 final class PythonWorkerClient: PythonWorkerRunning {
     private var runningProcess: Process?
+    private static let inheritedEnvironmentKeys = [
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "SSL_CERT_FILE",
+        "REQUESTS_CA_BUNDLE"
+    ]
 
     static func condaArguments(environmentName: String, jobFile: URL) -> [String] {
         [
@@ -21,16 +30,28 @@ final class PythonWorkerClient: PythonWorkerRunning {
         ]
     }
 
+    static func workerEnvironment(
+        base: [String: String] = ProcessInfo.processInfo.environment,
+        overrides: [String: String]
+    ) -> [String: String] {
+        var environment: [String: String] = [:]
+        for key in inheritedEnvironmentKeys {
+            if let value = base[key] {
+                environment[key] = value
+            }
+        }
+        overrides.forEach { key, value in
+            environment[key] = value
+        }
+        return environment
+    }
+
     func run(_ request: WorkerLaunchRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: request.condaPath)
         process.arguments = Self.condaArguments(environmentName: request.environmentName, jobFile: request.jobFile)
         process.currentDirectoryURL = request.workerDirectory
-        var environment = ProcessInfo.processInfo.environment
-        request.environment.forEach { key, value in
-            environment[key] = value
-        }
-        process.environment = environment
+        process.environment = Self.workerEnvironment(overrides: request.environment)
 
         let outputPipe = Pipe()
         process.standardOutput = outputPipe

@@ -10,3 +10,5 @@ __pycache__/
 *.pyc
 worker/.venv/
 worker/*.egg-info/
+/测试内容/
+/local-media/

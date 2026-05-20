@@ -8,7 +8,7 @@ import re
 import time
 from typing import Callable
 
-from .asr import ASRProvider, FasterWhisperASRProvider
+from .asr import ASRProvider
 from .ffmpeg import build_hard_subtitle_mp4_command, build_soft_subtitle_mkv_command, ffmpeg_supports_filter, probe_media_duration, run_ffmpeg
 from .models import Job
 from .subtitles import SubtitleSegment, render_ass, render_srt
@@ -49,6 +49,25 @@ def _clean_transcript_text(text: str) -> str:
     return re.sub(r"<\|[^|]+?\|>", "", text).strip()
 
 
+def _validated_translations(
+    segments: list[TranscriptSegment],
+    translated_text: dict[str, str],
+) -> dict[str, str]:
+    expected_ids = [segment.segment_id for segment in segments]
+    expected = set(expected_ids)
+    actual = set(translated_text)
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    problems: list[str] = []
+    if missing:
+        problems.append(f"missing translations for: {', '.join(missing)}")
+    if extra:
+        problems.append(f"unexpected translations for: {', '.join(extra)}")
+    if problems:
+        raise ValueError("; ".join(problems))
+    return translated_text
+
+
 def run_pipeline(
     job: Job,
     asr: ASRProvider | None = None,
@@ -70,15 +89,7 @@ def run_pipeline(
         if emit:
             emit("stage_started", stage="asr", message="正在加载 ASR 模型并识别日语音频", progress=0.05)
         if asr_provider is None:
-            if job.asr.backend != "fasterWhisper":
-                raise RuntimeError("WhisperKit transcript.ja.json is missing; run the macOS app native ASR step first.")
-            asr_provider = FasterWhisperASRProvider(
-                job.asr,
-                search_roots=[
-                    job.output_directory.parent,
-                    job.output_directory.parent.parent,
-                ],
-            )
+            raise RuntimeError("WhisperKit transcript.ja.json is missing; run the macOS app native ASR step first.")
         transcript_segments = asr_provider.transcribe(job.audio_path)
         _write_json(
             transcript_path,
@@ -105,7 +116,10 @@ def run_pipeline(
             progress=0.45,
         )
     translation_started_at = time.perf_counter()
-    translated_text = translation_provider.translate(transcript_segments)
+    translated_text = _validated_translations(
+        transcript_segments,
+        translation_provider.translate(transcript_segments),
+    )
     translation_elapsed = time.perf_counter() - translation_started_at
     if emit:
         emit(

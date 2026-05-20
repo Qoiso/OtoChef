@@ -7,4 +7,3 @@ dependencies:
   - ffmpeg
   - pip:
       - -e .[test]
-

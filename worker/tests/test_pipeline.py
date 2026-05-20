@@ -19,6 +19,11 @@ class FakeTranslator:
         return {"seg-0001": "你好"}
 
 
+class MissingSegmentTranslator:
+    def translate(self, segments: list[TranscriptSegment]) -> dict[str, str]:
+        return {}
+
+
 def test_read_transcript_segments_removes_whisperkit_control_tokens(tmp_path: Path) -> None:
     transcript_path = tmp_path / "transcript.ja.json"
     transcript_path.write_text(
@@ -82,6 +87,41 @@ def test_run_pipeline_writes_transcript_translation_and_subtitles(tmp_path: Path
     assert artifacts.ass_path.exists()
     assert artifacts.output_video_path is None
     assert json.loads(artifacts.translation_path.read_text())["segments"][0]["text"] == "你好"
+
+
+def test_run_pipeline_reports_missing_translation_ids_before_subtitle_generation(tmp_path: Path) -> None:
+    job = Job.from_dict(
+        {
+            "id": "example",
+            "audioPath": str(tmp_path / "audio.wav"),
+            "imagePath": str(tmp_path / "image.png"),
+            "outputDirectory": str(tmp_path),
+            "settings": {
+                "asr": {
+                    "backend": "fasterWhisper",
+                    "model": "Systran/faster-whisper-large-v3",
+                    "device": "auto",
+                    "computeType": "auto",
+                    "language": "ja",
+                    "vadEnabled": True,
+                    "beamSize": 5,
+                },
+                "translation": {
+                    "backend": "api",
+                    "endpoint": "http://localhost:11434/v1",
+                    "model": "qwen2.5:7b",
+                    "prompt": "Translate",
+                    "timeoutSeconds": 120,
+                    "retryLimit": 2,
+                },
+                "tools": {"ffmpegPath": "/opt/homebrew/bin/ffmpeg"},
+                "video": {"width": 1920, "height": 1080, "imageFit": "contain", "backgroundColor": "black"},
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="missing translations.*seg-0001"):
+        run_pipeline(job, asr=FakeASR(), translator=MissingSegmentTranslator(), run_video=False)
 
 
 def test_run_pipeline_external_subtitles_skips_video_even_when_run_video_is_true(tmp_path: Path) -> None:
@@ -228,6 +268,41 @@ def test_run_pipeline_uses_existing_transcript_and_skips_asr(tmp_path: Path) -> 
 
     assert artifacts.transcript_path == transcript_path
     assert json.loads(artifacts.translation_path.read_text())["segments"][0]["text"] == "你好"
+
+
+def test_run_pipeline_requires_native_whisperkit_transcript_when_asr_provider_is_not_injected(tmp_path: Path) -> None:
+    job = Job.from_dict(
+        {
+            "id": "example",
+            "audioPath": str(tmp_path / "audio.wav"),
+            "imagePath": str(tmp_path / "image.png"),
+            "outputDirectory": str(tmp_path),
+            "settings": {
+                "asr": {
+                    "backend": "fasterWhisper",
+                    "model": "Systran/faster-whisper-large-v3",
+                    "device": "auto",
+                    "computeType": "auto",
+                    "language": "ja",
+                    "vadEnabled": True,
+                    "beamSize": 5,
+                },
+                "translation": {
+                    "backend": "api",
+                    "endpoint": "http://localhost:11434/v1",
+                    "model": "qwen2.5:7b",
+                    "prompt": "Translate",
+                    "timeoutSeconds": 120,
+                    "retryLimit": 2,
+                },
+                "tools": {"ffmpegPath": "/opt/homebrew/bin/ffmpeg"},
+                "video": {"width": 1920, "height": 1080, "imageFit": "contain", "backgroundColor": "black"},
+            },
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="WhisperKit transcript.ja.json is missing"):
+        run_pipeline(job, translator=FakeTranslator(), run_video=False)
 
 
 def test_run_pipeline_emits_stage_events(tmp_path: Path) -> None:

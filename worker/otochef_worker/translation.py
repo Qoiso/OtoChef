@@ -43,6 +43,8 @@ def parse_translation_response(content: str) -> dict[str, str]:
         translated = item.get("text", item.get("translation", item.get("translatedText")))
         if translated is None:
             raise ValueError(f"Translation item for id {segment_id} is missing text")
+        if str(segment_id) in result:
+            raise ValueError(f"Duplicate translation id: {segment_id}")
         result[str(segment_id)] = str(translated)
     return result
 
@@ -78,13 +80,13 @@ class OpenAICompatibleTranslationProvider:
             request_body["thinking"] = {"type": "disabled"}
             request_body["response_format"] = {"type": "json_object"}
 
-        response = requests.post(
+        response = _post_with_retries(
             f"{configuration.base_url.rstrip('/')}/chat/completions",
+            retry_limit=self.settings.retry_limit,
             headers=headers,
             timeout=self.settings.timeout_seconds,
             json=request_body,
         )
-        response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         return parse_translation_response(content)
 
@@ -117,8 +119,9 @@ class RoutedTranslationProvider:
             "anthropic-version": "2023-06-01",
         }
         user_payload = json.dumps(build_translation_payload(segments), ensure_ascii=False)
-        response = requests.post(
+        response = _post_with_retries(
             f"{configuration.base_url.rstrip('/')}/v1/messages",
+            retry_limit=self.settings.retry_limit,
             headers=headers,
             timeout=self.settings.timeout_seconds,
             json={
@@ -129,15 +132,15 @@ class RoutedTranslationProvider:
                 "temperature": 0.2,
             },
         )
-        response.raise_for_status()
         content = _first_text_block(response.json()["content"])
         return parse_translation_response(content)
 
     def _translate_gemini(self, segments: list[TranscriptSegment]) -> dict[str, str]:
         configuration = self.settings.active_configuration
         user_payload = json.dumps(build_translation_payload(segments), ensure_ascii=False)
-        response = requests.post(
+        response = _post_with_retries(
             f"{configuration.base_url.rstrip('/')}/v1beta/models/{configuration.model}:generateContent",
+            retry_limit=self.settings.retry_limit,
             params={"key": self.api_key or ""},
             headers={"Content-Type": "application/json"},
             timeout=self.settings.timeout_seconds,
@@ -147,7 +150,6 @@ class RoutedTranslationProvider:
                 "generationConfig": {"temperature": 0.2},
             },
         )
-        response.raise_for_status()
         parts = response.json()["candidates"][0]["content"]["parts"]
         return parse_translation_response(_first_text_block(parts))
 
@@ -158,6 +160,21 @@ def _first_text_block(blocks: list[dict[str, object]]) -> str:
         if isinstance(text, str):
             return text
     raise ValueError("Translation response did not contain text")
+
+
+def _post_with_retries(url: str, retry_limit: int, **kwargs) -> requests.Response:
+    attempts = max(1, retry_limit + 1)
+    last_error: requests.RequestException | None = None
+    for attempt in range(attempts):
+        try:
+            response = requests.post(url, **kwargs)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as error:
+            last_error = error
+            if attempt == attempts - 1:
+                raise
+    raise last_error or RuntimeError("Translation request failed")
 
 
 def _format_instructions(prompt: str, *, json_object: bool = False) -> str:

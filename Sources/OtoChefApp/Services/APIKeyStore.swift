@@ -24,13 +24,13 @@ final class MemoryAPIKeyStore: APIKeyStore {
 }
 
 final class KeychainAPIKeyStore: APIKeyStore {
-    private let service = "OtoChef"
+    private static let service = "OtoChef"
 
     func saveTranslationAPIKey(_ key: String, for provider: TranslationProvider) throws {
         let data = Data(key.utf8)
-        let query = query(for: provider)
+        let query = Self.query(for: provider)
         SecItemDelete(query as CFDictionary)
-        var attributes = query
+        var attributes = Self.attributesForSave(for: provider)
         attributes[kSecValueData as String] = data
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else {
@@ -39,7 +39,7 @@ final class KeychainAPIKeyStore: APIKeyStore {
     }
 
     func loadTranslationAPIKey(for provider: TranslationProvider) throws -> String? {
-        var query = query(for: provider)
+        var query = Self.query(for: provider)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -58,17 +58,23 @@ final class KeychainAPIKeyStore: APIKeyStore {
     }
 
     func clearTranslationAPIKey(for provider: TranslationProvider) throws {
-        let status = SecItemDelete(query(for: provider) as CFDictionary)
+        let status = SecItemDelete(Self.query(for: provider) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
         }
     }
 
-    private func query(for provider: TranslationProvider) -> [String: Any] {
+    static func query(for provider: TranslationProvider) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: "translation-api-key.\(provider.rawValue)"
         ]
+    }
+
+    static func attributesForSave(for provider: TranslationProvider) -> [String: Any] {
+        var attributes = query(for: provider)
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return attributes
     }
 }

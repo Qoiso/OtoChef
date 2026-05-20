@@ -36,6 +36,14 @@ def _wrap_text(text: str, width: int = 24) -> str:
     return "\n".join(lines)
 
 
+def _escape_ass_text(text: str) -> str:
+    return (
+        text.replace("\\", "＼")
+        .replace("{", "｛")
+        .replace("}", "｝")
+    )
+
+
 def render_srt(segments: list[SubtitleSegment]) -> str:
     blocks: list[str] = []
     for index, segment in enumerate(segments, start=1):
@@ -59,6 +67,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = [header]
     for segment in segments:
-        text = _wrap_text(segment.text).replace("\n", r"\N")
+        text = _wrap_text(_escape_ass_text(segment.text)).replace("\n", r"\N")
         lines.append(f"Dialogue: 0,{_ass_time(segment.start)},{_ass_time(segment.end)},Default,,0,0,0,,{text}\n")
     return "".join(lines)
