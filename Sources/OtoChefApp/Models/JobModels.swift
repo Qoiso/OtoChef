@@ -16,6 +16,35 @@ struct OtoChefJob: Codable, Equatable {
     var createdAt: Date
 }
 
+enum RecentJobStatus: String, Codable, Equatable {
+    case running
+    case finished
+    case failed
+
+    var label: String {
+        switch self {
+        case .running:
+            return "处理中"
+        case .finished:
+            return "已完成"
+        case .failed:
+            return "失败"
+        }
+    }
+}
+
+struct RecentJob: Codable, Equatable, Identifiable {
+    var id: UUID
+    var audioPath: String
+    var imagePath: String
+    var outputDirectory: String
+    var workingDirectory: String
+    var translationProvider: TranslationProvider
+    var createdAt: Date
+    var status: RecentJobStatus
+    var statusMessage: String
+}
+
 enum JobValidationError: String, Equatable, Identifiable {
     case missingAudio
     case missingImage

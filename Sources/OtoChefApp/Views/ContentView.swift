@@ -46,7 +46,7 @@ struct ContentView: View {
             case .newJob:
                 NewJobView(store: store)
             case .recentJobs:
-                ContentUnavailableView("暂无最近任务", systemImage: "clock")
+                RecentJobsView(store: store)
             case .settings:
                 SettingsView(settings: $store.draft.settings)
             case .diagnostics:

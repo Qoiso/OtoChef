@@ -77,6 +77,91 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(try settingsStore.load()?.translation.configuration(for: .ollama).model, "saved-model")
     }
 
+    func testInitLoadsRecentJobs() throws {
+        let recentJobStore = MemoryRecentJobStore()
+        let recentJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/audio.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/otochef-job",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            status: .running,
+            statusMessage: "正在处理"
+        )
+        try recentJobStore.save([recentJob])
+
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: MemoryAppSettingsStore(),
+            recentJobStore: recentJobStore
+        )
+
+        XCTAssertEqual(store.recentJobs, [recentJob])
+    }
+
+    func testStartProcessingAddsRecentJobRecord() throws {
+        let recentJobStore = MemoryRecentJobStore()
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        try settingsStore.save(settings)
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: settingsStore,
+            worker: CapturingPythonWorker(),
+            transcriber: StubNativeTranscriptionService(),
+            recentJobStore: recentJobStore,
+            toolFileExists: { _ in true }
+        )
+        store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio.wav")
+        store.draft.imageURL = URL(fileURLWithPath: "/tmp/image.png")
+        store.draft.outputDirectory = outputDirectory
+
+        store.startProcessing()
+
+        XCTAssertEqual(store.recentJobs.count, 1)
+        XCTAssertEqual(store.recentJobs.first?.audioPath, "/tmp/audio.wav")
+        XCTAssertEqual(store.recentJobs.first?.imagePath, "/tmp/image.png")
+        XCTAssertEqual(store.recentJobs.first?.outputDirectory, outputDirectory.path)
+        XCTAssertEqual(store.recentJobs.first?.translationProvider, .ollama)
+        XCTAssertEqual(store.recentJobs.first?.status, .running)
+        XCTAssertEqual(try recentJobStore.load(), store.recentJobs)
+    }
+
+    func testStartProcessingMarksRecentJobFailedWhenWorkerThrows() async throws {
+        let recentJobStore = MemoryRecentJobStore()
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        try settingsStore.save(settings)
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: settingsStore,
+            worker: ThrowingPythonWorker(),
+            transcriber: StubNativeTranscriptionService(),
+            recentJobStore: recentJobStore,
+            toolFileExists: { _ in true }
+        )
+        store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio.wav")
+        store.draft.imageURL = URL(fileURLWithPath: "/tmp/image.png")
+        store.draft.outputDirectory = outputDirectory
+
+        store.startProcessing()
+
+        for _ in 0..<50 where store.recentJobs.first?.status != .failed {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(store.recentJobs.first?.status, .failed)
+        XCTAssertEqual(try recentJobStore.load().first?.status, .failed)
+    }
+
     func testStartProcessingPassesOnlySelectedProviderAPIKey() async throws {
         let apiKeyStore = MemoryAPIKeyStore()
         try apiKeyStore.saveTranslationAPIKey("deepseek-key", for: .deepSeek)
@@ -142,6 +227,12 @@ private final class CapturingPythonWorker: PythonWorkerRunning {
     func run(_ request: WorkerLaunchRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
         lastRequest = request
         onRun?()
+    }
+}
+
+private struct ThrowingPythonWorker: PythonWorkerRunning {
+    func run(_ request: WorkerLaunchRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
+        throw NSError(domain: "OtoChefTests", code: 1)
     }
 }
 

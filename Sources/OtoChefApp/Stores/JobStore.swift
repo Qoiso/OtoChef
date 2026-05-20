@@ -6,6 +6,7 @@ final class JobStore {
     var draft = JobDraft(audioURL: nil, imageURL: nil, outputDirectory: nil, settings: .defaults)
     var validationErrors: [JobValidationError] = []
     var events: [WorkerEvent] = []
+    var recentJobs: [RecentJob] = []
     var isRunning = false
     var currentProgress: Double? {
         events.reversed().compactMap(\.progress).first
@@ -20,20 +21,26 @@ final class JobStore {
     private let transcriber: any NativeTranscriptionService
     private let apiKeyStore: any APIKeyStore
     private let settingsStore: any AppSettingsStore
+    private let recentJobStore: any RecentJobStore
     private let toolFileExists: (String) -> Bool
+    private var activeJobID: UUID?
+    private let maximumRecentJobs = 20
 
     init(
         apiKeyStore: any APIKeyStore = KeychainAPIKeyStore(),
         settingsStore: any AppSettingsStore = UserDefaultsAppSettingsStore(),
         worker: any PythonWorkerRunning = PythonWorkerClient(),
         transcriber: any NativeTranscriptionService = WhisperKitTranscriptionService(),
+        recentJobStore: any RecentJobStore = UserDefaultsRecentJobStore(),
         toolFileExists: @escaping (String) -> Bool = FileManager.default.fileExists(atPath:)
     ) {
         self.apiKeyStore = apiKeyStore
         self.settingsStore = settingsStore
         self.worker = worker
         self.transcriber = transcriber
+        self.recentJobStore = recentJobStore
         self.toolFileExists = toolFileExists
+        recentJobs = (try? recentJobStore.load()) ?? []
         if let settings = try? settingsStore.load() {
             let resolvedSettings = settings.resolvingAvailableToolDefaults(fileExists: toolFileExists)
             draft.settings = resolvedSettings
@@ -55,6 +62,10 @@ final class JobStore {
         events.append(event)
         if event.type == .jobFinished || event.type == .stageFailed {
             isRunning = false
+            updateActiveRecentJob(
+                status: event.type == .jobFinished ? .finished : .failed,
+                statusMessage: event.message ?? (event.type == .jobFinished ? "任务已完成" : "任务失败")
+            )
         }
     }
 
@@ -72,7 +83,21 @@ final class JobStore {
             let job = try validator.makeJob(from: draft)
             let artifacts = try writer.write(job)
             isRunning = true
+            activeJobID = job.id
             events.removeAll()
+            recordRecentJob(
+                RecentJob(
+                    id: job.id,
+                    audioPath: job.audioPath,
+                    imagePath: job.imagePath,
+                    outputDirectory: job.outputDirectory,
+                    workingDirectory: artifacts.workingDirectory.path,
+                    translationProvider: job.settings.translation.selectedProvider,
+                    createdAt: job.createdAt,
+                    status: .running,
+                    statusMessage: "正在处理"
+                )
+            )
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -125,9 +150,8 @@ final class JobStore {
                     }
                 } catch {
                     await MainActor.run {
-                        self.isRunning = false
-                        self.events.append(
-                            WorkerEvent(
+                        self.append(
+                            event: WorkerEvent(
                                 type: .stageFailed,
                                 stage: "swift",
                                 message: error.localizedDescription,
@@ -150,6 +174,32 @@ final class JobStore {
                 )
             )
         }
+    }
+
+    private func recordRecentJob(_ job: RecentJob) {
+        recentJobs.removeAll { $0.id == job.id }
+        recentJobs.insert(job, at: 0)
+        if recentJobs.count > maximumRecentJobs {
+            recentJobs.removeLast(recentJobs.count - maximumRecentJobs)
+        }
+        saveRecentJobs()
+    }
+
+    private func updateActiveRecentJob(status: RecentJobStatus, statusMessage: String) {
+        guard let activeJobID,
+              let index = recentJobs.firstIndex(where: { $0.id == activeJobID }) else {
+            return
+        }
+        recentJobs[index].status = status
+        recentJobs[index].statusMessage = statusMessage
+        saveRecentJobs()
+        if status != .running {
+            self.activeJobID = nil
+        }
+    }
+
+    private func saveRecentJobs() {
+        try? recentJobStore.save(recentJobs)
     }
 
     private func projectRoot() -> URL {
