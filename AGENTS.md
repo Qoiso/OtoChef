@@ -18,6 +18,8 @@ Translation configuration is provider-specific. Keep base URL, model name, and A
 
 Subtitle translation should preserve the full script context. Do not automatically split remote API translation into parallel batches unless the user explicitly accepts the consistency tradeoff. DeepSeek requests should keep thinking disabled and use JSON object output to avoid slow reasoning responses while preserving structured parsing. Worker translation responses must preserve a one-to-one mapping for every expected segment ID; reject missing, extra, or duplicate IDs with clear errors before subtitle generation.
 
+Keep translation prompt text as internal configuration rather than exposing it in the normal settings UI. API key controls should stay locked/read-only by default, reveal editing only after an explicit "编辑密钥" action, and treat saving an empty edited key as clearing the provider's stored Keychain entry.
+
 ## Build, Test, and Development Commands
 
 - `swift build`: builds the macOS executable target.
@@ -41,6 +43,12 @@ Add or update tests for behavior changes. Swift test files should follow the exi
 ## Commit & Pull Request Guidelines
 
 Recent history uses concise imperative subjects, often Conventional Commit prefixes such as `feat:`, `fix:`, and `chore:`. Follow that style: `fix: harden worker pipeline` or `feat: add worker progress events`. Pull requests should describe the user-visible change, list Swift and Python tests run, link related issues or plans, and include screenshots or screen recordings for UI changes.
+
+The public GitHub default branch is `main`.
+
+## Public Documentation
+
+`README.md` is the default English project overview, and `README.zh-CN.md` is the Simplified Chinese version linked from it. Keep both README files user-facing: setup, usage, and contributor checks are appropriate; agent instructions, internal implementation plans, and repository-maintenance warnings belong in AGENTS.md, CONTRIBUTING.md, or other developer docs instead.
 
 ## Security & Configuration Tips
 
