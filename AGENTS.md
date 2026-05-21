@@ -46,6 +46,18 @@ Recent history uses concise imperative subjects, often Conventional Commit prefi
 
 The public GitHub default branch is `main`.
 
+### Git Completion Checklist
+
+When asked to finish Git work, complete the repository handoff instead of stopping at a local commit. Keep the workflow explicit and auditable:
+
+- Inspect `git status -sb` and the diff before staging; stage only intended files unless the user explicitly wants all changes included.
+- Run `git diff --check` before commit or final handoff.
+- Run the relevant local tests for touched areas; for cross-boundary changes, run both Swift tests and Python worker tests using the commands above.
+- Use a short Conventional Commit-style subject.
+- If work was done on a feature branch and the user asks to merge, merge back to `main` only after local checks pass, then rerun the relevant checks on merged `main`.
+- Push the final branch requested by the user. For direct `main` handoffs, ensure local `main` is synced with `origin/main` afterward.
+- When GitHub Actions is configured and network/auth access is available, verify the latest CI run for the pushed commit is green before calling the Git work complete; otherwise state exactly what prevented CI verification.
+
 ## Public Documentation
 
 `README.md` is the default English project overview, and `README.zh-CN.md` is the Simplified Chinese version linked from it. Keep both README files user-facing: setup, usage, and contributor checks are appropriate; agent instructions, internal implementation plans, and repository-maintenance warnings belong in AGENTS.md, CONTRIBUTING.md, or other developer docs instead.
