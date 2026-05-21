@@ -46,17 +46,20 @@ Recent history uses concise imperative subjects, often Conventional Commit prefi
 
 The public GitHub default branch is `main`.
 
-### Git Completion Checklist
+### Version Control Completion Standard
 
-When asked to finish Git work, complete the repository handoff instead of stopping at a local commit. Keep the workflow explicit and auditable:
+When asked to commit, merge, push, publish, or otherwise "finish the Git work," complete the repository handoff rather than stopping at a local commit. Keep the workflow explicit, auditable, and conservative:
 
-- Inspect `git status -sb` and the diff before staging; stage only intended files unless the user explicitly wants all changes included.
-- Run `git diff --check` before commit or final handoff.
-- Run the relevant local tests for touched areas; for cross-boundary changes, run both Swift tests and Python worker tests using the commands above.
-- Use a short Conventional Commit-style subject.
-- If work was done on a feature branch and the user asks to merge, merge back to `main` only after local checks pass, then rerun the relevant checks on merged `main`.
-- Push the final branch requested by the user. For direct `main` handoffs, ensure local `main` is synced with `origin/main` afterward.
-- When GitHub Actions is configured and network/auth access is available, verify the latest CI run for the pushed commit is green before calling the Git work complete; otherwise state exactly what prevented CI verification.
+- Start with `git status -sb`, current branch, and a diff review. Do not stage unrelated user changes. Prefer explicit path staging, and use `git add -p` when the touched files contain mixed concerns.
+- Prefer a short-lived topic branch for substantive code changes. Direct `main` commits are acceptable only for small documentation/configuration-only updates or when the user explicitly asks for a direct `main` handoff.
+- Keep commits atomic and reviewable: one logical change per commit, with tests/docs in the same commit when they prove or explain that change. Avoid noisy "fix typo after commit" follow-up commits; amend local unpublished commits when appropriate.
+- Use a short Conventional Commit-style subject (`fix:`, `feat:`, `docs:`, `test:`, `chore:`). Add a body when the rationale, risk, migration note, or security context is not obvious from the diff.
+- Before committing, run `git diff --check` and the relevant local validation. For Swift-only changes, run Swift tests; for worker-only changes, run Python worker tests; for cross-boundary changes, run both documented test commands. For docs-only changes, `git diff --check` is usually sufficient unless the docs describe executable behavior.
+- Before merging a topic branch into `main`, make sure local checks pass on the branch. Merge back to `main` only intentionally, prefer fast-forward when possible, then rerun the relevant checks on merged `main`.
+- Push the final branch requested by the user. For direct `main` handoffs, verify that local `main` is clean and synced with `origin/main` afterward.
+- When GitHub Actions is configured and network/auth access is available, verify the latest CI run for the pushed commit before calling the Git work complete. This repository's CI must show both `Swift tests` and `Python worker tests` green. If CI is pending, wait; if it fails, report the failing job and either fix it or ask for direction. If CI cannot be checked, state the exact blocker.
+- After a successful local merge, delete only the local topic branch that was fully merged. Never force-push, delete remote branches, rewrite published history, or discard work without explicit user approval.
+- Final handoff should state the commit SHA, branch pushed, local validation commands and results, GitHub Actions result, and whether `main` is synced with `origin/main`.
 
 ## Public Documentation
 
