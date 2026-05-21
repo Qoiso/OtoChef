@@ -127,6 +127,8 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(store.recentJobs.first?.audioPath, "/tmp/audio.wav")
         XCTAssertEqual(store.recentJobs.first?.imagePath, "/tmp/image.png")
         XCTAssertEqual(store.recentJobs.first?.outputDirectory, outputDirectory.path)
+        XCTAssertTrue(store.recentJobs.first?.workingDirectory.hasPrefix(outputDirectory.path) == true)
+        XCTAssertTrue(store.recentJobs.first?.workingDirectory.contains("/.otochef/") == true)
         XCTAssertEqual(store.recentJobs.first?.translationProvider, .ollama)
         XCTAssertEqual(store.recentJobs.first?.status, .running)
         XCTAssertEqual(try recentJobStore.load(), store.recentJobs)

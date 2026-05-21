@@ -54,6 +54,18 @@ class VideoSettings:
     image_fit: str
     background_color: str
     subtitle_output_mode: str = "external"
+    output_files: tuple[str, ...] = ("chineseSubtitles",)
+
+    @property
+    def includes_video(self) -> bool:
+        return "video" in self.output_files
+
+    @property
+    def requires_translation(self) -> bool:
+        return any(
+            output_file in {"video", "chineseSubtitles", "bilingualSubtitles"}
+            for output_file in self.output_files
+        )
 
 
 @dataclass(frozen=True)
@@ -62,6 +74,7 @@ class Job:
     audio_path: Path
     image_path: Path
     output_directory: Path
+    working_directory: Path
     asr: ASRSettings
     translation: TranslationSettings
     tools: ToolSettings
@@ -74,12 +87,14 @@ class Job:
         translation = settings["translation"]
         tools = settings["tools"]
         video = settings["video"]
+        subtitle_output_mode = video.get("subtitleOutputMode", "external")
 
         return cls(
             job_id=str(payload["id"]),
             audio_path=Path(payload["audioPath"]),
             image_path=Path(payload["imagePath"]),
             output_directory=Path(payload["outputDirectory"]),
+            working_directory=Path(payload.get("workingDirectory", payload["outputDirectory"])),
             asr=ASRSettings(
                 backend=asr["backend"],
                 model=asr["model"],
@@ -98,9 +113,24 @@ class Job:
                 height=int(video["height"]),
                 image_fit=video["imageFit"],
                 background_color=video["backgroundColor"],
-                subtitle_output_mode=video.get("subtitleOutputMode", "external"),
+                subtitle_output_mode=subtitle_output_mode,
+                output_files=_parse_output_files(video, subtitle_output_mode),
             ),
         )
+
+
+def _parse_output_files(video: dict[str, Any], subtitle_output_mode: str) -> tuple[str, ...]:
+    output_files = video.get("outputFiles")
+    if output_files is None:
+        if subtitle_output_mode == "external":
+            return ("chineseSubtitles",)
+        return ("video", "chineseSubtitles")
+
+    known_outputs = ("video", "japaneseSubtitles", "chineseSubtitles", "bilingualSubtitles")
+    normalized = tuple(output_file for output_file in known_outputs if output_file in output_files)
+    if not normalized:
+        raise ValueError("At least one output file must be selected.")
+    return normalized
 
 
 def _parse_translation_settings(translation: dict[str, Any]) -> TranslationSettings:

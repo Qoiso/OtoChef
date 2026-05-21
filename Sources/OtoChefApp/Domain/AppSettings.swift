@@ -29,7 +29,14 @@ struct AppSettings: Codable, Equatable {
         ),
         conda: CondaSettings(executablePath: "/opt/homebrew/bin/conda", environmentName: "otochef"),
         tools: ToolSettings(ffmpegPath: ToolSettings.defaultFFmpegPath()),
-        video: VideoSettings(width: 1920, height: 1080, imageFit: .contain, backgroundColor: "black", subtitleOutputMode: .external)
+        video: VideoSettings(
+            width: 1920,
+            height: 1080,
+            imageFit: .contain,
+            backgroundColor: "black",
+            subtitleOutputMode: .external,
+            outputFiles: [.chineseSubtitles]
+        )
     )
 
     func resolvingAvailableToolDefaults(fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> AppSettings {
@@ -357,19 +364,37 @@ struct VideoSettings: Codable, Equatable {
     var imageFit: ImageFit
     var backgroundColor: String
     var subtitleOutputMode: SubtitleOutputMode
+    var outputFiles: [OutputFile]
+
+    var includesVideo: Bool {
+        outputFiles.contains(.video)
+    }
+
+    var requiresTranslation: Bool {
+        outputFiles.contains { outputFile in
+            switch outputFile {
+            case .video, .chineseSubtitles, .bilingualSubtitles:
+                return true
+            case .japaneseSubtitles:
+                return false
+            }
+        }
+    }
 
     init(
         width: Int,
         height: Int,
         imageFit: ImageFit,
         backgroundColor: String,
-        subtitleOutputMode: SubtitleOutputMode = .external
+        subtitleOutputMode: SubtitleOutputMode = .external,
+        outputFiles: [OutputFile] = [.chineseSubtitles]
     ) {
         self.width = width
         self.height = height
         self.imageFit = imageFit
         self.backgroundColor = backgroundColor
         self.subtitleOutputMode = subtitleOutputMode
+        self.outputFiles = Self.normalizedOutputFiles(outputFiles)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -378,6 +403,7 @@ struct VideoSettings: Codable, Equatable {
         case imageFit
         case backgroundColor
         case subtitleOutputMode
+        case outputFiles
     }
 
     init(from decoder: Decoder) throws {
@@ -387,6 +413,46 @@ struct VideoSettings: Codable, Equatable {
         imageFit = try container.decode(ImageFit.self, forKey: .imageFit)
         backgroundColor = try container.decode(String.self, forKey: .backgroundColor)
         subtitleOutputMode = try container.decodeIfPresent(SubtitleOutputMode.self, forKey: .subtitleOutputMode) ?? .external
+        if let outputFiles = try container.decodeIfPresent([OutputFile].self, forKey: .outputFiles) {
+            self.outputFiles = Self.normalizedOutputFiles(outputFiles)
+        } else {
+            self.outputFiles = Self.legacyOutputFiles(for: subtitleOutputMode)
+        }
+    }
+
+    private static func normalizedOutputFiles(_ outputFiles: [OutputFile]) -> [OutputFile] {
+        OutputFile.allCases.filter { outputFiles.contains($0) }
+    }
+
+    private static func legacyOutputFiles(for subtitleOutputMode: SubtitleOutputMode) -> [OutputFile] {
+        switch subtitleOutputMode {
+        case .external:
+            return [.chineseSubtitles]
+        case .mkvSoftAss, .mp4HardSubtitles:
+            return [.video, .chineseSubtitles]
+        }
+    }
+}
+
+enum OutputFile: String, Codable, Equatable, CaseIterable, Identifiable {
+    case video
+    case japaneseSubtitles
+    case chineseSubtitles
+    case bilingualSubtitles
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .video:
+            return "视频"
+        case .japaneseSubtitles:
+            return "日语字幕"
+        case .chineseSubtitles:
+            return "中文字幕"
+        case .bilingualSubtitles:
+            return "双语字幕"
+        }
     }
 }
 

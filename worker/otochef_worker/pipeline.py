@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import tempfile
 import time
 from typing import Callable
 
@@ -21,9 +22,10 @@ PipelineEventEmitter = Callable[..., None]
 @dataclass(frozen=True)
 class PipelineArtifacts:
     transcript_path: Path
-    translation_path: Path
-    srt_path: Path
-    ass_path: Path
+    translation_path: Path | None
+    srt_path: Path | None
+    ass_path: Path | None
+    subtitle_paths: tuple[Path, ...]
     output_video_path: Path | None
 
 
@@ -68,6 +70,67 @@ def _validated_translations(
     return translated_text
 
 
+def _transcript_subtitle_segments(segments: list[TranscriptSegment]) -> list[SubtitleSegment]:
+    return [
+        SubtitleSegment(
+            segment_id=segment.segment_id,
+            start=segment.start,
+            end=segment.end,
+            text=segment.text,
+        )
+        for segment in segments
+    ]
+
+
+def _translated_subtitle_segments(
+    segments: list[TranscriptSegment],
+    translated_text: dict[str, str],
+) -> list[SubtitleSegment]:
+    return [
+        SubtitleSegment(
+            segment_id=segment.segment_id,
+            start=segment.start,
+            end=segment.end,
+            text=translated_text[segment.segment_id],
+        )
+        for segment in segments
+    ]
+
+
+def _bilingual_subtitle_segments(
+    segments: list[TranscriptSegment],
+    translated_text: dict[str, str],
+) -> list[SubtitleSegment]:
+    return [
+        SubtitleSegment(
+            segment_id=segment.segment_id,
+            start=segment.start,
+            end=segment.end,
+            text=f"{segment.text}\n{translated_text[segment.segment_id]}",
+        )
+        for segment in segments
+    ]
+
+
+def _write_subtitle_files(
+    output_directory: Path,
+    stem: str,
+    segments: list[SubtitleSegment],
+    width: int,
+    height: int,
+    emit: PipelineEventEmitter | None,
+    label: str,
+) -> tuple[Path, Path]:
+    srt_path = output_directory / f"{stem}.srt"
+    ass_path = output_directory / f"{stem}.ass"
+    srt_path.write_text(render_srt(segments), encoding="utf-8")
+    ass_path.write_text(render_ass(segments, width=width, height=height), encoding="utf-8")
+    if emit:
+        emit("artifact_created", stage="subtitle", message=f"{label} SRT 已生成", progress=0.78, path=str(srt_path))
+        emit("artifact_created", stage="subtitle", message=f"{label} ASS 已生成", progress=0.82, path=str(ass_path))
+    return srt_path, ass_path
+
+
 def run_pipeline(
     job: Job,
     asr: ASRProvider | None = None,
@@ -76,13 +139,10 @@ def run_pipeline(
     emit: PipelineEventEmitter | None = None,
 ) -> PipelineArtifacts:
     job.output_directory.mkdir(parents=True, exist_ok=True)
+    job.working_directory.mkdir(parents=True, exist_ok=True)
     asr_provider = asr
-    translation_provider = translator or RoutedTranslationProvider(
-        job.translation,
-        api_key=os.environ.get("OTOCHEF_TRANSLATION_API_KEY"),
-    )
 
-    transcript_path = job.output_directory / "transcript.ja.json"
+    transcript_path = job.working_directory / "transcript.ja.json"
     if transcript_path.exists():
         transcript_segments = _read_transcript_segments(transcript_path)
     else:
@@ -108,68 +168,123 @@ def run_pipeline(
     if emit:
         emit("artifact_created", stage="asr", message="日语转写已完成", progress=0.40, path=str(transcript_path))
 
-    if emit:
-        emit(
-            "stage_started",
-            stage="translation",
-            message=describe_translation_plan(job.translation, transcript_segments),
-            progress=0.45,
+    translated_text: dict[str, str] | None = None
+    translation_path: Path | None = None
+    if job.video.requires_translation:
+        translation_provider = translator or RoutedTranslationProvider(
+            job.translation,
+            api_key=os.environ.get("OTOCHEF_TRANSLATION_API_KEY"),
         )
-    translation_started_at = time.perf_counter()
-    translated_text = _validated_translations(
-        transcript_segments,
-        translation_provider.translate(transcript_segments),
-    )
-    translation_elapsed = time.perf_counter() - translation_started_at
-    if emit:
-        emit(
-            "progress",
-            stage="translation",
-            message=f"翻译请求完成，用时 {translation_elapsed:.1f} 秒",
-            progress=0.62,
+        if emit:
+            emit(
+                "stage_started",
+                stage="translation",
+                message=describe_translation_plan(job.translation, transcript_segments),
+                progress=0.45,
+            )
+        translation_started_at = time.perf_counter()
+        translated_text = _validated_translations(
+            transcript_segments,
+            translation_provider.translate(transcript_segments),
         )
-    subtitle_segments = [
-        SubtitleSegment(
-            segment_id=segment.segment_id,
-            start=segment.start,
-            end=segment.end,
-            text=translated_text[segment.segment_id],
+        translation_elapsed = time.perf_counter() - translation_started_at
+        if emit:
+            emit(
+                "progress",
+                stage="translation",
+                message=f"翻译请求完成，用时 {translation_elapsed:.1f} 秒",
+                progress=0.62,
+            )
+        translated_segments = _translated_subtitle_segments(transcript_segments, translated_text)
+        translation_path = job.working_directory / "translation.zh.json"
+        _write_json(
+            translation_path,
+            {
+                "segments": [
+                    {
+                        "id": segment.segment_id,
+                        "start": segment.start,
+                        "end": segment.end,
+                        "text": segment.text,
+                    }
+                    for segment in translated_segments
+                ]
+            },
         )
-        for segment in transcript_segments
-    ]
-    translation_path = job.output_directory / "translation.zh.json"
-    _write_json(
-        translation_path,
-        {
-            "segments": [
-                {
-                    "id": segment.segment_id,
-                    "start": segment.start,
-                    "end": segment.end,
-                    "text": segment.text,
-                }
-                for segment in subtitle_segments
-            ]
-        },
-    )
-    if emit:
-        emit("artifact_created", stage="translation", message="中文字幕翻译已完成", progress=0.65, path=str(translation_path))
+        if emit:
+            emit("artifact_created", stage="translation", message="中文字幕翻译已完成", progress=0.65, path=str(translation_path))
 
-    if emit:
-        emit("stage_started", stage="subtitle", message="正在生成字幕文件", progress=0.70)
-    srt_path = job.output_directory / "subtitles.zh.srt"
-    ass_path = job.output_directory / "subtitles.zh.ass"
-    srt_path.write_text(render_srt(subtitle_segments), encoding="utf-8")
-    ass_path.write_text(render_ass(subtitle_segments, width=job.video.width, height=job.video.height), encoding="utf-8")
-    if emit:
-        emit("artifact_created", stage="subtitle", message="SRT 字幕已生成", progress=0.78, path=str(srt_path))
-        emit("artifact_created", stage="subtitle", message="ASS 字幕已生成", progress=0.82, path=str(ass_path))
+    subtitle_paths: list[Path] = []
+    chinese_ass_path: Path | None = None
+    bilingual_ass_path: Path | None = None
+    srt_path: Path | None = None
+    ass_path: Path | None = None
+    visible_subtitle_outputs = [
+        output_file
+        for output_file in ("japaneseSubtitles", "chineseSubtitles", "bilingualSubtitles")
+        if output_file in job.video.output_files
+    ]
+    if visible_subtitle_outputs:
+        if emit:
+            emit("stage_started", stage="subtitle", message="正在生成字幕文件", progress=0.70)
+        for output_file in visible_subtitle_outputs:
+            if output_file == "japaneseSubtitles":
+                generated = _write_subtitle_files(
+                    job.output_directory,
+                    "subtitles.ja",
+                    _transcript_subtitle_segments(transcript_segments),
+                    job.video.width,
+                    job.video.height,
+                    emit,
+                    "日语字幕",
+                )
+            elif output_file == "chineseSubtitles":
+                assert translated_text is not None
+                generated = _write_subtitle_files(
+                    job.output_directory,
+                    "subtitles.zh",
+                    _translated_subtitle_segments(transcript_segments, translated_text),
+                    job.video.width,
+                    job.video.height,
+                    emit,
+                    "中文字幕",
+                )
+                chinese_ass_path = generated[1]
+                srt_path, ass_path = generated
+            else:
+                assert translated_text is not None
+                generated = _write_subtitle_files(
+                    job.output_directory,
+                    "subtitles.ja-zh",
+                    _bilingual_subtitle_segments(transcript_segments, translated_text),
+                    job.video.width,
+                    job.video.height,
+                    emit,
+                    "双语字幕",
+                )
+                bilingual_ass_path = generated[1]
+            subtitle_paths.extend(generated)
 
     output_video_path: Path | None = None
     subtitle_mode = job.video.subtitle_output_mode
-    if run_video and subtitle_mode != "external":
+    if run_video and job.video.includes_video:
+        if translated_text is None:
+            raise RuntimeError("视频输出需要先完成中文字幕翻译。")
         if emit:
             emit("stage_started", stage="ffmpeg", message="正在调用 FFmpeg 合成视频", progress=0.86)
+        temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        video_ass_path = bilingual_ass_path or chinese_ass_path
+        if video_ass_path is None:
+            temp_dir = tempfile.TemporaryDirectory()
+            video_ass_path = Path(temp_dir.name) / "video-subtitles.ass"
+            video_ass_path.write_text(
+                render_ass(
+                    _translated_subtitle_segments(transcript_segments, translated_text),
+                    width=job.video.width,
+                    height=job.video.height,
+                ),
+                encoding="utf-8",
+            )
         if subtitle_mode == "mkvSoftAss":
             duration_seconds = probe_media_duration(job.tools.ffmpeg_path, job.audio_path)
             output_video_path = job.output_directory / "output.mkv"
@@ -177,7 +292,7 @@ def run_pipeline(
                 ffmpeg_path=job.tools.ffmpeg_path,
                 image_path=job.image_path,
                 audio_path=job.audio_path,
-                ass_path=ass_path,
+                ass_path=video_ass_path,
                 output_path=output_video_path,
                 video=job.video,
                 duration_seconds=duration_seconds,
@@ -190,20 +305,25 @@ def run_pipeline(
                 ffmpeg_path=job.tools.ffmpeg_path,
                 image_path=job.image_path,
                 audio_path=job.audio_path,
-                ass_path=ass_path,
+                ass_path=video_ass_path,
                 output_path=output_video_path,
                 video=job.video,
             )
         else:
             raise RuntimeError(f"Unsupported subtitle output mode: {subtitle_mode}")
-        run_ffmpeg(command)
-        if emit:
-            emit("artifact_created", stage="video", message="视频已生成", progress=1.0, path=str(output_video_path))
+        try:
+            run_ffmpeg(command)
+            if emit:
+                emit("artifact_created", stage="video", message="视频已生成", progress=1.0, path=str(output_video_path))
+        finally:
+            if temp_dir is not None:
+                temp_dir.cleanup()
 
     return PipelineArtifacts(
         transcript_path=transcript_path,
         translation_path=translation_path,
         srt_path=srt_path,
         ass_path=ass_path,
+        subtitle_paths=tuple(subtitle_paths),
         output_video_path=output_video_path,
     )

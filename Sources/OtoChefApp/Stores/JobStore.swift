@@ -49,6 +49,7 @@ final class JobStore {
                 try? settingsStore.save(resolvedSettings)
             }
         }
+        draft.outputDirectory = defaultOutputDirectory()
     }
 
     func validate() {
@@ -134,7 +135,9 @@ final class JobStore {
                         }
                     }
 
-                    let apiKey = try apiKeyStore.loadTranslationAPIKey(for: job.settings.translation.selectedProvider)
+                    let apiKey = job.settings.video.requiresTranslation
+                        ? try apiKeyStore.loadTranslationAPIKey(for: job.settings.translation.selectedProvider)
+                        : nil
                     let workerDirectory = projectRoot()
                         .appendingPathComponent("worker", isDirectory: true)
                     let request = WorkerLaunchRequest(
@@ -211,6 +214,10 @@ final class JobStore {
                 .deletingLastPathComponent()
         }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+
+    private func defaultOutputDirectory() -> URL {
+        projectRoot().appendingPathComponent("output", isDirectory: true)
     }
 }
 

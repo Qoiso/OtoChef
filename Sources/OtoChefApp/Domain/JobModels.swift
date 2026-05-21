@@ -12,6 +12,7 @@ struct OtoChefJob: Codable, Equatable {
     var audioPath: String
     var imagePath: String
     var outputDirectory: String
+    var workingDirectory: String?
     var settings: AppSettings
     var createdAt: Date
 }
@@ -49,6 +50,7 @@ enum JobValidationError: String, Equatable, Identifiable {
     case missingAudio
     case missingImage
     case missingOutputDirectory
+    case missingOutputFile
     case missingASRModel
     case missingCondaExecutable
     case missingCondaEnvironment
@@ -66,6 +68,8 @@ enum JobValidationError: String, Equatable, Identifiable {
             return "请选择静态图片。"
         case .missingOutputDirectory:
             return "请选择输出文件夹。"
+        case .missingOutputFile:
+            return "请至少选择一个输出文件。"
         case .missingASRModel:
             return "请填写 WhisperKit 模型名称。"
         case .missingCondaExecutable:

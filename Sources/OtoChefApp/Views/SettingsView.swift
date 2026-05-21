@@ -78,13 +78,17 @@ struct SettingsView: View {
                 TextField("FFmpeg", text: $settings.tools.ffmpegPath)
             }
 
-            Section("字幕输出") {
-                Picker("模式", selection: $settings.video.subtitleOutputMode) {
-                    ForEach(SubtitleOutputMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
+            Section("输出文件") {
+                ForEach(OutputFile.allCases) { outputFile in
+                    Toggle(outputFile.label, isOn: outputFileBinding(outputFile))
                 }
-                .pickerStyle(.radioGroup)
+                if settings.video.includesVideo {
+                    Picker("视频模式", selection: videoSubtitleOutputMode) {
+                        Text(SubtitleOutputMode.mkvSoftAss.label).tag(SubtitleOutputMode.mkvSoftAss)
+                        Text(SubtitleOutputMode.mp4HardSubtitles.label).tag(SubtitleOutputMode.mp4HardSubtitles)
+                    }
+                    .pickerStyle(.radioGroup)
+                }
             }
         }
         .formStyle(.grouped)
@@ -123,6 +127,35 @@ struct SettingsView: View {
 
     private var showsAPIKeyControls: Bool {
         selectedProvider.requiresAPIKey || selectedProvider.acceptsOptionalAPIKey || savedAPIKeyExists
+    }
+
+    private var videoSubtitleOutputMode: Binding<SubtitleOutputMode> {
+        Binding {
+            settings.video.subtitleOutputMode == .external ? .mkvSoftAss : settings.video.subtitleOutputMode
+        } set: { newValue in
+            settings.video.subtitleOutputMode = newValue
+        }
+    }
+
+    private func outputFileBinding(_ outputFile: OutputFile) -> Binding<Bool> {
+        Binding {
+            settings.video.outputFiles.contains(outputFile)
+        } set: { isSelected in
+            if isSelected {
+                if !settings.video.outputFiles.contains(outputFile) {
+                    settings.video.outputFiles.append(outputFile)
+                    settings.video.outputFiles = OutputFile.allCases.filter { settings.video.outputFiles.contains($0) }
+                }
+                if outputFile == .video, settings.video.subtitleOutputMode == .external {
+                    settings.video.subtitleOutputMode = .mkvSoftAss
+                }
+            } else {
+                settings.video.outputFiles.removeAll { $0 == outputFile }
+                if outputFile == .video {
+                    settings.video.subtitleOutputMode = .external
+                }
+            }
+        }
     }
 
     private func loadAPIKeyState() {

@@ -13,11 +13,14 @@ struct JobValidator {
         if draft.audioURL == nil || !fileExists(draft.audioURL?.path ?? "") {
             errors.append(.missingAudio)
         }
-        if draft.imageURL == nil || !fileExists(draft.imageURL?.path ?? "") {
+        if draft.settings.video.includesVideo && (draft.imageURL == nil || !fileExists(draft.imageURL?.path ?? "")) {
             errors.append(.missingImage)
         }
-        if draft.outputDirectory == nil || !fileExists(draft.outputDirectory?.path ?? "") {
+        if draft.outputDirectory == nil {
             errors.append(.missingOutputDirectory)
+        }
+        if draft.settings.video.outputFiles.isEmpty {
+            errors.append(.missingOutputFile)
         }
         if draft.settings.asr.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingASRModel)
@@ -30,14 +33,14 @@ struct JobValidator {
             errors.append(.missingCondaEnvironment)
         }
         let ffmpegPath = draft.settings.tools.ffmpegPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if ffmpegPath.isEmpty || !fileExists(ffmpegPath) {
+        if draft.settings.video.includesVideo && (ffmpegPath.isEmpty || !fileExists(ffmpegPath)) {
             errors.append(.missingFFmpeg)
         }
         let translationConfiguration = draft.settings.translation.activeConfiguration
-        if translationConfiguration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if draft.settings.video.requiresTranslation && translationConfiguration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingTranslationEndpoint)
         }
-        if translationConfiguration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if draft.settings.video.requiresTranslation && translationConfiguration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingTranslationModel)
         }
 
@@ -53,8 +56,9 @@ struct JobValidator {
         return OtoChefJob(
             id: UUID(),
             audioPath: draft.audioURL!.path,
-            imagePath: draft.imageURL!.path,
+            imagePath: draft.imageURL?.path ?? "",
             outputDirectory: draft.outputDirectory!.path,
+            workingDirectory: nil,
             settings: draft.settings,
             createdAt: now
         )

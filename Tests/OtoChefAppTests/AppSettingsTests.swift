@@ -16,6 +16,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.video.width, 1920)
         XCTAssertEqual(settings.video.height, 1080)
         XCTAssertEqual(settings.video.subtitleOutputMode, .external)
+        XCTAssertEqual(settings.video.outputFiles, [.chineseSubtitles])
     }
 
     func testWhisperKitModelOptionsExposeExpectedProjectLocalModels() {
@@ -197,6 +198,23 @@ final class AppSettingsTests: XCTestCase {
         let settings = try JSONDecoder().decode(VideoSettings.self, from: Data(json.utf8))
 
         XCTAssertEqual(settings.subtitleOutputMode, .external)
+        XCTAssertEqual(settings.outputFiles, [.chineseSubtitles])
+    }
+
+    func testVideoSettingsDecodeLegacyVideoModeAsVideoAndChineseSubtitleOutputs() throws {
+        let json = """
+        {
+          "width": 1920,
+          "height": 1080,
+          "imageFit": "contain",
+          "backgroundColor": "black",
+          "subtitleOutputMode": "mkvSoftAss"
+        }
+        """
+
+        let settings = try JSONDecoder().decode(VideoSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(settings.outputFiles, [.video, .chineseSubtitles])
     }
 
     func testTranslationSettingsDecodeOlderEndpointModelShapeIntoDefaults() throws {

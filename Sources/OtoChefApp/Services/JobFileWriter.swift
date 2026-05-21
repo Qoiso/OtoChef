@@ -10,18 +10,21 @@ struct JobFileWriter {
     }
 
     func write(_ job: OtoChefJob) throws -> JobArtifacts {
+        let outputDirectory = URL(fileURLWithPath: job.outputDirectory, isDirectory: true)
         let safeID = job.id.uuidString.lowercased()
-        let workingDirectory = URL(fileURLWithPath: job.outputDirectory)
-            .appendingPathComponent("otochef-\(safeID)", isDirectory: true)
+        let workingDirectory = outputDirectory
+            .appendingPathComponent(".otochef", isDirectory: true)
+            .appendingPathComponent(safeID, isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
 
         let jobFile = workingDirectory.appendingPathComponent("job.json")
         var jobForWorker = job
-        jobForWorker.outputDirectory = workingDirectory.path
+        jobForWorker.outputDirectory = outputDirectory.path
+        jobForWorker.workingDirectory = workingDirectory.path
         let data = try encoder.encode(jobForWorker)
         try data.write(to: jobFile, options: [.atomic])
 
         return JobArtifacts(workingDirectory: workingDirectory, jobFile: jobFile)
     }
 }
-

@@ -15,7 +15,7 @@ struct NewJobView: View {
                 fileButton("选择音频", systemImage: "waveform", value: store.draft.audioURL?.lastPathComponent) {
                     chooseFile(allowedTypes: ["wav", "mp3", "m4a", "flac"]) { store.draft.audioURL = $0 }
                 }
-                fileButton("选择图片", systemImage: "photo", value: store.draft.imageURL?.lastPathComponent) {
+                fileButton(store.draft.settings.video.includesVideo ? "选择图片" : "选择图片（仅视频需要）", systemImage: "photo", value: store.draft.imageURL?.lastPathComponent) {
                     chooseFile(allowedTypes: ["png", "jpg", "jpeg", "webp"]) { store.draft.imageURL = $0 }
                 }
             }

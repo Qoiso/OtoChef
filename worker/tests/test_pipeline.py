@@ -24,6 +24,11 @@ class MissingSegmentTranslator:
         return {}
 
 
+class ExplodingTranslator:
+    def translate(self, segments: list[TranscriptSegment]) -> dict[str, str]:
+        raise AssertionError("translation should be skipped")
+
+
 def test_read_transcript_segments_removes_whisperkit_control_tokens(tmp_path: Path) -> None:
     transcript_path = tmp_path / "transcript.ja.json"
     transcript_path.write_text(
@@ -87,6 +92,55 @@ def test_run_pipeline_writes_transcript_translation_and_subtitles(tmp_path: Path
     assert artifacts.ass_path.exists()
     assert artifacts.output_video_path is None
     assert json.loads(artifacts.translation_path.read_text())["segments"][0]["text"] == "你好"
+
+
+def test_run_pipeline_writes_only_japanese_subtitles_without_translation(tmp_path: Path) -> None:
+    internal_dir = tmp_path / ".otochef" / "example"
+    job = Job.from_dict(
+        {
+            "id": "example",
+            "audioPath": str(tmp_path / "audio.wav"),
+            "imagePath": "",
+            "outputDirectory": str(tmp_path),
+            "workingDirectory": str(internal_dir),
+            "settings": {
+                "asr": {
+                    "backend": "fasterWhisper",
+                    "model": "Systran/faster-whisper-large-v3",
+                    "device": "auto",
+                    "computeType": "auto",
+                    "language": "ja",
+                    "vadEnabled": True,
+                    "beamSize": 5,
+                },
+                "translation": {
+                    "backend": "api",
+                    "endpoint": "http://localhost:11434/v1",
+                    "model": "qwen2.5:7b",
+                    "prompt": "Translate",
+                    "timeoutSeconds": 120,
+                    "retryLimit": 2,
+                },
+                "tools": {"ffmpegPath": "/opt/homebrew/bin/ffmpeg"},
+                "video": {
+                    "width": 1920,
+                    "height": 1080,
+                    "imageFit": "contain",
+                    "backgroundColor": "black",
+                    "outputFiles": ["japaneseSubtitles"],
+                },
+            },
+        }
+    )
+
+    artifacts = run_pipeline(job, asr=FakeASR(), translator=ExplodingTranslator(), run_video=False)
+
+    assert artifacts.translation_path is None
+    assert (tmp_path / "subtitles.ja.srt").exists()
+    assert (tmp_path / "subtitles.ja.ass").exists()
+    assert not (tmp_path / "subtitles.zh.srt").exists()
+    assert not (tmp_path / "transcript.ja.json").exists()
+    assert (internal_dir / "transcript.ja.json").exists()
 
 
 def test_run_pipeline_reports_missing_translation_ids_before_subtitle_generation(tmp_path: Path) -> None:

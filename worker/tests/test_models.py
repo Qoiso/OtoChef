@@ -42,7 +42,9 @@ def test_job_from_dict_accepts_swift_json_shape(tmp_path: Path) -> None:
     assert job.translation.active_configuration.base_url == "http://localhost:11434/v1"
     assert job.translation.active_configuration.model == "qwen2.5:7b"
     assert job.output_directory == tmp_path
+    assert job.working_directory == tmp_path
     assert job.video.subtitle_output_mode == "external"
+    assert job.video.output_files == ("chineseSubtitles",)
 
 
 def test_job_from_dict_parses_selected_translation_provider(tmp_path: Path) -> None:
@@ -161,3 +163,47 @@ def test_job_from_dict_accepts_subtitle_output_mode(tmp_path: Path) -> None:
     )
 
     assert job.video.subtitle_output_mode == "mkvSoftAss"
+    assert job.video.output_files == ("video", "chineseSubtitles")
+
+
+def test_job_from_dict_accepts_output_files_and_working_directory(tmp_path: Path) -> None:
+    working_directory = tmp_path / ".otochef" / "example"
+    job = Job.from_dict(
+        {
+            "id": "example",
+            "audioPath": "/tmp/audio.wav",
+            "imagePath": "",
+            "outputDirectory": str(tmp_path),
+            "workingDirectory": str(working_directory),
+            "settings": {
+                "asr": {
+                    "backend": "fasterWhisper",
+                    "model": "Systran/faster-whisper-large-v3",
+                    "device": "cpu",
+                    "computeType": "int8",
+                    "language": "ja",
+                    "vadEnabled": True,
+                    "beamSize": 1,
+                },
+                "translation": {
+                    "backend": "api",
+                    "endpoint": "http://localhost:11434/v1",
+                    "model": "qwen2.5:7b",
+                    "prompt": "Translate",
+                    "timeoutSeconds": 120,
+                    "retryLimit": 2,
+                },
+                "tools": {"ffmpegPath": "/opt/homebrew/bin/ffmpeg"},
+                "video": {
+                    "width": 1920,
+                    "height": 1080,
+                    "imageFit": "contain",
+                    "backgroundColor": "black",
+                    "outputFiles": ["bilingualSubtitles", "japaneseSubtitles"],
+                },
+            },
+        }
+    )
+
+    assert job.working_directory == working_directory
+    assert job.video.output_files == ("japaneseSubtitles", "bilingualSubtitles")
