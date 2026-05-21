@@ -7,6 +7,7 @@ from otochef_worker.models import TranslationProviderConfiguration, TranslationS
 from otochef_worker.translation import (
     RoutedTranslationProvider,
     TranscriptSegment,
+    _post_with_retries,
     build_translation_payload,
     describe_translation_plan,
     parse_translation_response,
@@ -314,3 +315,27 @@ def test_gemini_provider_posts_to_generate_content(monkeypatch) -> None:
     assert system_text.startswith("Translate")
     assert "Return only valid JSON" in system_text
     assert calls[0][1]["json"]["generationConfig"]["temperature"] == 0.2
+
+
+def test_failed_gemini_request_error_redacts_query_api_key(monkeypatch) -> None:
+    def fake_post(url, **kwargs):
+        request = requests.Request("POST", url, params=kwargs["params"])
+        response = requests.Response()
+        response.status_code = 403
+        response.reason = "Forbidden"
+        response.url = request.prepare().url
+        response._content = b"forbidden"
+        return response
+
+    monkeypatch.setattr("otochef_worker.translation.requests.post", fake_post)
+
+    with pytest.raises(Exception) as error:
+        _post_with_retries(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+            retry_limit=0,
+            params={"key": "SECRET_KEY"},
+        )
+
+    message = str(error.value)
+    assert "SECRET_KEY" not in message
+    assert "key=REDACTED" in message

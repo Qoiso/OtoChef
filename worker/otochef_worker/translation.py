@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 import re
 from typing import Protocol
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -173,8 +174,27 @@ def _post_with_retries(url: str, retry_limit: int, **kwargs) -> requests.Respons
         except requests.RequestException as error:
             last_error = error
             if attempt == attempts - 1:
-                raise
-    raise last_error or RuntimeError("Translation request failed")
+                raise RuntimeError(_redact_request_error(str(error))) from None
+    raise RuntimeError(_redact_request_error(str(last_error or "Translation request failed"))) from None
+
+
+def _redact_request_error(message: str) -> str:
+    return re.sub(r"https?://[^\s]+", _redact_url_match, message)
+
+
+def _redact_url_match(match: re.Match[str]) -> str:
+    return _redact_url_query(match.group(0))
+
+
+def _redact_url_query(url: str) -> str:
+    sensitive_keys = {"key", "api_key", "apikey", "token", "access_token", "authorization", "auth"}
+    parts = urlsplit(url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    redacted_query = [
+        (key, "REDACTED" if key.lower() in sensitive_keys else value)
+        for key, value in query
+    ]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(redacted_query), parts.fragment))
 
 
 def _format_instructions(prompt: str, *, json_object: bool = False) -> str:
