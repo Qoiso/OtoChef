@@ -18,7 +18,7 @@ Translation configuration is provider-specific. Keep base URL, model name, and A
 
 Subtitle translation should preserve the full script context. Do not automatically split remote API translation into parallel batches unless the user explicitly accepts the consistency tradeoff. DeepSeek requests should keep thinking disabled and use JSON object output to avoid slow reasoning responses while preserving structured parsing. Worker translation responses must preserve a one-to-one mapping for every expected segment ID; reject missing, extra, or duplicate IDs with clear errors before subtitle generation.
 
-Keep translation prompt text as internal configuration rather than exposing it in the normal settings UI. API key controls should stay locked/read-only by default, reveal editing only after an explicit "编辑密钥" action, and treat saving an empty edited key as clearing the provider's stored Keychain entry.
+Keep translation prompt text as internal configuration rather than exposing it in the normal settings UI. API key controls should stay locked/read-only by default, reveal editing only after an explicit "编辑密钥" action, and treat saving an empty edited key as clearing the provider's stored Keychain entry. Treat provider request errors as secret-bearing: redact API keys and token-like URL query parameters before emitting worker events, persisting recent-job status, or surfacing errors in the UI.
 
 ## Build, Test, and Development Commands
 
