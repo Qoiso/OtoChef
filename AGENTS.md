@@ -18,7 +18,13 @@ Translation configuration is provider-specific. Keep base URL, model name, and A
 
 Subtitle translation should preserve the full script context. Do not automatically split remote API translation into parallel batches unless the user explicitly accepts the consistency tradeoff. DeepSeek requests should keep thinking disabled and use JSON object output to avoid slow reasoning responses while preserving structured parsing. Worker translation responses must preserve a one-to-one mapping for every expected segment ID; reject missing, extra, or duplicate IDs with clear errors before subtitle generation.
 
-Keep translation prompt text as internal configuration rather than exposing it in the normal settings UI. API key controls should stay locked/read-only by default, reveal editing only after an explicit "编辑密钥" action, and treat saving an empty edited key as clearing the provider's stored Keychain entry. Treat provider request errors as secret-bearing: redact API keys and token-like URL query parameters before emitting worker events, persisting recent-job status, or surfacing errors in the UI.
+Keep translation prompt text as internal configuration rather than exposing it in the normal settings UI. API key controls should stay locked/read-only by default, reveal editing only after an explicit "编辑密钥" action, preload the provider's existing Keychain key into the edit field, and treat saving an empty edited key as clearing the provider's stored Keychain entry. Treat provider request errors as secret-bearing: redact API keys and token-like URL query parameters before emitting worker events, persisting recent-job status, or surfacing errors in the UI.
+
+## Job Execution, Queueing, and Diagnostics
+
+Job submission supports both parallel and queued modes through `JobSubmissionMode`. Do not treat `JobStore.isRunning` as a global submission gate: users may add another parallel job while one is running, or enqueue jobs that start automatically after the jobs blocking them finish. Keep worker events associated with the correct job ID, keep recent-job progress/status per job, and keep `PythonWorkerClient` able to retain multiple concurrent `Process` instances safely until each terminates.
+
+The New Task page owns user-input validation feedback; failed starts should surface validation messages in the task log without creating a recent-job record. The Diagnostics page is for manual software-environment checks such as Conda, FFmpeg, model paths, and worker directories. Do not run diagnostics automatically on app launch, and do not use the Diagnostics page for draft input errors. Preserve native macOS settings UI conventions such as grouped `Form` styling unless the user explicitly asks for a broader redesign.
 
 ## Build, Test, and Development Commands
 

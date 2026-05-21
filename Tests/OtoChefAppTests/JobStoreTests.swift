@@ -134,6 +134,22 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(try recentJobStore.load(), store.recentJobs)
     }
 
+    func testStartProcessingLogsValidationErrorsWithoutCreatingJob() {
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: MemoryAppSettingsStore(),
+            worker: CapturingPythonWorker(),
+            transcriber: StubNativeTranscriptionService(),
+            recentJobStore: MemoryRecentJobStore(),
+            toolFileExists: { _ in false }
+        )
+
+        store.startProcessing(mode: .parallel)
+
+        XCTAssertTrue(store.recentJobs.isEmpty)
+        XCTAssertTrue(store.logEntries.contains { $0.event.message == JobValidationError.missingAudio.message })
+    }
+
     func testStartProcessingMarksRecentJobFailedWhenWorkerThrows() async throws {
         let recentJobStore = MemoryRecentJobStore()
         let settingsStore = MemoryAppSettingsStore()
@@ -195,6 +211,54 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(worker.lastRequest?.environment["OTOCHEF_TRANSLATION_API_KEY"], "deepseek-key")
     }
 
+    func testParallelSubmissionStartsWhileAnotherJobIsRunning() async throws {
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        try settingsStore.save(settings)
+        let worker = ControlledPythonWorker()
+        let store = makeRunnableStore(settingsStore: settingsStore, worker: worker)
+
+        store.startProcessing(mode: .parallel)
+        try await waitUntil { worker.requests.count == 1 }
+        store.startProcessing(mode: .parallel)
+        try await waitUntil { worker.requests.count == 2 }
+
+        XCTAssertEqual(store.recentJobs.count, 2)
+        XCTAssertEqual(store.recentJobs.map(\.status), [.running, .running])
+    }
+
+    func testQueuedSubmissionWaitsForPreviousJobThenStartsAutomatically() async throws {
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        try settingsStore.save(settings)
+        let worker = ControlledPythonWorker()
+        let store = makeRunnableStore(settingsStore: settingsStore, worker: worker)
+
+        store.startProcessing(mode: .parallel)
+        try await waitUntil { worker.requests.count == 1 }
+        store.startProcessing(mode: .queued)
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(worker.requests.count, 1)
+        XCTAssertEqual(store.recentJobs.first?.status, .queued)
+
+        worker.finishRun(
+            at: 0,
+            event: WorkerEvent(
+                type: .jobFinished,
+                stage: nil,
+                message: "第一个任务完成",
+                progress: 1.0,
+                path: nil
+            )
+        )
+        try await waitUntil { worker.requests.count == 2 }
+
+        XCTAssertEqual(store.recentJobs.first?.status, .running)
+    }
+
     func testAppendTracksLatestProgressAndStatusMessage() {
         let store = JobStore(apiKeyStore: MemoryAPIKeyStore(), settingsStore: MemoryAppSettingsStore())
 
@@ -220,6 +284,39 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(store.currentProgress, 0.40)
         XCTAssertEqual(store.statusMessage, "日语转写已完成")
     }
+
+    private func makeRunnableStore(
+        settingsStore: MemoryAppSettingsStore,
+        worker: ControlledPythonWorker
+    ) -> JobStore {
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: settingsStore,
+            worker: worker,
+            transcriber: StubNativeTranscriptionService(),
+            toolFileExists: { _ in true }
+        )
+        store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio.wav")
+        store.draft.imageURL = URL(fileURLWithPath: "/tmp/image.png")
+        store.draft.outputDirectory = outputDirectory
+        return store
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        condition: @escaping () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() >= deadline {
+                XCTFail("Timed out waiting for condition")
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
 }
 
 private final class CapturingPythonWorker: PythonWorkerRunning {
@@ -229,6 +326,20 @@ private final class CapturingPythonWorker: PythonWorkerRunning {
     func run(_ request: WorkerLaunchRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
         lastRequest = request
         onRun?()
+    }
+}
+
+private final class ControlledPythonWorker: PythonWorkerRunning {
+    private(set) var requests: [WorkerLaunchRequest] = []
+    private var eventHandlers: [(WorkerEvent) -> Void] = []
+
+    func run(_ request: WorkerLaunchRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
+        requests.append(request)
+        eventHandlers.append(onEvent)
+    }
+
+    func finishRun(at index: Int, event: WorkerEvent) {
+        eventHandlers[index](event)
     }
 }
 

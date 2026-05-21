@@ -6,6 +6,7 @@ final class JobStore {
     var draft = JobDraft(audioURL: nil, imageURL: nil, outputDirectory: nil, settings: .defaults)
     var validationErrors: [JobValidationError] = []
     var events: [WorkerEvent] = []
+    var logEntries: [JobLogEntry] = []
     var recentJobs: [RecentJob] = []
     var isRunning = false
     var currentProgress: Double? {
@@ -24,7 +25,16 @@ final class JobStore {
     private let recentJobStore: any RecentJobStore
     private let toolFileExists: (String) -> Bool
     private var activeJobID: UUID?
+    private var runningJobIDs: Set<UUID> = []
+    private var completedJobIDs: Set<UUID> = []
+    private var queuedJobs: [QueuedJob] = []
     private let maximumRecentJobs = 20
+
+    private struct QueuedJob {
+        var job: OtoChefJob
+        var artifacts: JobArtifacts
+        var blockedBy: Set<UUID>
+    }
 
     init(
         apiKeyStore: any APIKeyStore = KeychainAPIKeyStore(),
@@ -57,16 +67,50 @@ final class JobStore {
     }
 
     func canStart() -> Bool {
-        validator.validate(draft).isEmpty && !isRunning
+        validator.validate(draft).isEmpty
     }
 
     func append(event: WorkerEvent) {
         events.append(event)
+        recordLog(event: event)
+        if let activeJobID {
+            updateRecentJob(
+                id: activeJobID,
+                status: nil,
+                statusMessage: event.message,
+                progress: event.progress
+            )
+        }
         if event.type == .jobFinished || event.type == .stageFailed {
-            isRunning = false
-            updateActiveRecentJob(
+            if let activeJobID {
+                finishJob(
+                    id: activeJobID,
+                    status: event.type == .jobFinished ? .finished : .failed,
+                    statusMessage: event.message ?? (event.type == .jobFinished ? "任务已完成" : "任务失败"),
+                    progress: event.type == .jobFinished ? 1.0 : event.progress
+                )
+            } else {
+                isRunning = false
+            }
+        }
+    }
+
+    func append(event: WorkerEvent, for jobID: UUID) {
+        events.append(event)
+        recordLog(event: event)
+        if event.type == .jobFinished || event.type == .stageFailed {
+            finishJob(
+                id: jobID,
                 status: event.type == .jobFinished ? .finished : .failed,
-                statusMessage: event.message ?? (event.type == .jobFinished ? "任务已完成" : "任务失败")
+                statusMessage: event.message ?? (event.type == .jobFinished ? "任务已完成" : "任务失败"),
+                progress: event.type == .jobFinished ? 1.0 : event.progress
+            )
+        } else {
+            updateRecentJob(
+                id: jobID,
+                status: nil,
+                statusMessage: event.message,
+                progress: event.progress
             )
         }
     }
@@ -75,18 +119,27 @@ final class JobStore {
         try? settingsStore.save(draft.settings)
     }
 
-    func startProcessing() {
+    func startProcessing(mode: JobSubmissionMode = .parallel) {
         validate()
         guard validationErrors.isEmpty else {
+            for error in validationErrors {
+                append(
+                    event: WorkerEvent(
+                        type: .stageFailed,
+                        stage: "validation",
+                        message: error.message,
+                        progress: nil,
+                        path: nil
+                    )
+                )
+            }
             return
         }
 
         do {
             let job = try validator.makeJob(from: draft)
             let artifacts = try writer.write(job)
-            isRunning = true
-            activeJobID = job.id
-            events.removeAll()
+            let blockers = runningJobIDs.union(queuedJobs.map(\.job.id))
             recordRecentJob(
                 RecentJob(
                     id: job.id,
@@ -96,80 +149,24 @@ final class JobStore {
                     workingDirectory: artifacts.workingDirectory.path,
                     translationProvider: job.settings.translation.selectedProvider,
                     createdAt: job.createdAt,
-                    status: .running,
-                    statusMessage: "正在处理"
+                    status: mode == .queued && !blockers.isEmpty ? .queued : .running,
+                    statusMessage: mode == .queued && !blockers.isEmpty ? "等待前序任务完成" : "正在处理",
+                    progress: mode == .queued && !blockers.isEmpty ? 0 : nil,
+                    submissionMode: mode
                 )
             )
-            Task { [weak self] in
-                guard let self else { return }
-                do {
-                    if job.settings.asr.backend == .whisperKit {
-                        await MainActor.run {
-                            self.append(
-                                event: WorkerEvent(
-                                    type: .stageStarted,
-                                    stage: "asr",
-                                    message: "正在用 WhisperKit/Core ML 识别日语音频",
-                                    progress: 0.05,
-                                    path: nil
-                                )
-                            )
-                        }
-                        let transcriptURL = artifacts.workingDirectory.appendingPathComponent("transcript.ja.json")
-                        try await transcriber.transcribe(
-                            audioURL: URL(fileURLWithPath: job.audioPath),
-                            settings: job.settings.asr,
-                            outputURL: transcriptURL,
-                            projectRoot: projectRoot()
-                        )
-                        await MainActor.run {
-                            self.append(
-                                event: WorkerEvent(
-                                    type: .artifactCreated,
-                                    stage: "asr",
-                                    message: "WhisperKit 日语转写已完成",
-                                    progress: 0.40,
-                                    path: transcriptURL.path
-                                )
-                            )
-                        }
-                    }
 
-                    let apiKey = job.settings.video.requiresTranslation
-                        ? try apiKeyStore.loadTranslationAPIKey(for: job.settings.translation.selectedProvider)
-                        : nil
-                    let workerDirectory = projectRoot()
-                        .appendingPathComponent("worker", isDirectory: true)
-                    let request = WorkerLaunchRequest(
-                        condaPath: job.settings.conda.executablePath,
-                        environmentName: job.settings.conda.environmentName,
-                        workerDirectory: workerDirectory,
-                        jobFile: artifacts.jobFile,
-                        environment: apiKey.map { ["OTOCHEF_TRANSLATION_API_KEY": $0] } ?? [:]
-                    )
-                    try worker.run(request) { [weak self] event in
-                        DispatchQueue.main.async {
-                            self?.append(event: event)
-                        }
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.append(
-                            event: WorkerEvent(
-                                type: .stageFailed,
-                                stage: "swift",
-                                message: error.localizedDescription,
-                                progress: nil,
-                                path: nil
-                            )
-                        )
-                    }
-                }
+            switch mode {
+            case .parallel:
+                startExecution(job: job, artifacts: artifacts)
+            case .queued:
+                queuedJobs.append(QueuedJob(job: job, artifacts: artifacts, blockedBy: blockers))
+                startReadyQueuedJobs()
             }
         } catch {
             isRunning = false
-            events.append(
-                WorkerEvent(
+            append(
+                event: WorkerEvent(
                     type: .stageFailed,
                     stage: "swift",
                     message: error.localizedDescription,
@@ -177,6 +174,83 @@ final class JobStore {
                     path: nil
                 )
             )
+        }
+    }
+
+    private func startExecution(job: OtoChefJob, artifacts: JobArtifacts) {
+        runningJobIDs.insert(job.id)
+        isRunning = true
+        activeJobID = job.id
+        updateRecentJob(id: job.id, status: .running, statusMessage: "正在处理", progress: nil)
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                if job.settings.asr.backend == .whisperKit {
+                    await MainActor.run {
+                        self.append(
+                            event: WorkerEvent(
+                                type: .stageStarted,
+                                stage: "asr",
+                                message: "正在用 WhisperKit/Core ML 识别日语音频",
+                                progress: 0.05,
+                                path: nil
+                            ),
+                            for: job.id
+                        )
+                    }
+                    let transcriptURL = artifacts.workingDirectory.appendingPathComponent("transcript.ja.json")
+                    try await transcriber.transcribe(
+                        audioURL: URL(fileURLWithPath: job.audioPath),
+                        settings: job.settings.asr,
+                        outputURL: transcriptURL,
+                        projectRoot: projectRoot()
+                    )
+                    await MainActor.run {
+                        self.append(
+                            event: WorkerEvent(
+                                type: .artifactCreated,
+                                stage: "asr",
+                                message: "WhisperKit 日语转写已完成",
+                                progress: 0.40,
+                                path: transcriptURL.path
+                            ),
+                            for: job.id
+                        )
+                    }
+                }
+
+                let apiKey = job.settings.video.requiresTranslation
+                    ? try apiKeyStore.loadTranslationAPIKey(for: job.settings.translation.selectedProvider)
+                    : nil
+                let workerDirectory = projectRoot()
+                    .appendingPathComponent("worker", isDirectory: true)
+                let request = WorkerLaunchRequest(
+                    condaPath: job.settings.conda.executablePath,
+                    environmentName: job.settings.conda.environmentName,
+                    workerDirectory: workerDirectory,
+                    jobFile: artifacts.jobFile,
+                    environment: apiKey.map { ["OTOCHEF_TRANSLATION_API_KEY": $0] } ?? [:]
+                )
+                try worker.run(request) { [weak self] event in
+                    DispatchQueue.main.async {
+                        self?.append(event: event, for: job.id)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.append(
+                        event: WorkerEvent(
+                            type: .stageFailed,
+                            stage: "swift",
+                            message: error.localizedDescription,
+                            progress: nil,
+                            path: nil
+                        ),
+                        for: job.id
+                    )
+                }
+            }
         }
     }
 
@@ -202,8 +276,59 @@ final class JobStore {
         }
     }
 
+    private func updateRecentJob(
+        id: UUID,
+        status: RecentJobStatus?,
+        statusMessage: String?,
+        progress: Double?
+    ) {
+        guard let index = recentJobs.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        if let status {
+            recentJobs[index].status = status
+        }
+        if let statusMessage {
+            recentJobs[index].statusMessage = statusMessage
+        }
+        if let progress {
+            recentJobs[index].progress = progress
+        }
+        saveRecentJobs()
+    }
+
+    private func finishJob(
+        id: UUID,
+        status: RecentJobStatus,
+        statusMessage: String,
+        progress: Double?
+    ) {
+        updateRecentJob(id: id, status: status, statusMessage: statusMessage, progress: progress)
+        runningJobIDs.remove(id)
+        completedJobIDs.insert(id)
+        if activeJobID == id {
+            activeJobID = runningJobIDs.first
+        }
+        isRunning = !runningJobIDs.isEmpty
+        startReadyQueuedJobs()
+    }
+
+    private func startReadyQueuedJobs() {
+        while let index = queuedJobs.firstIndex(where: { $0.blockedBy.isSubset(of: completedJobIDs) }) {
+            let queuedJob = queuedJobs.remove(at: index)
+            startExecution(job: queuedJob.job, artifacts: queuedJob.artifacts)
+        }
+    }
+
     private func saveRecentJobs() {
         try? recentJobStore.save(recentJobs)
+    }
+
+    private func recordLog(event: WorkerEvent) {
+        logEntries.append(JobLogEntry(timestamp: Date(), event: event))
+        if logEntries.count > 200 {
+            logEntries.removeFirst(logEntries.count - 200)
+        }
     }
 
     private func projectRoot() -> URL {
@@ -222,3 +347,9 @@ final class JobStore {
 }
 
 extension JobStore: @unchecked Sendable { }
+
+struct JobLogEntry: Identifiable {
+    let id = UUID()
+    var timestamp: Date
+    var event: WorkerEvent
+}

@@ -9,90 +9,97 @@ struct SettingsView: View {
     private let apiKeyStore: any APIKeyStore = KeychainAPIKeyStore()
 
     var body: some View {
-        Form {
-            Section("语音识别") {
-                Picker("WhisperKit 模型", selection: $settings.asr.model) {
-                    ForEach(ASRSettings.whisperKitModelChoices) { choice in
-                        Text(choice.label).tag(choice.model)
-                    }
-                }
-                Toggle("语音活动检测（VAD）", isOn: $settings.asr.vadEnabled)
-                Stepper(
-                    "同时处理片段数: \(settings.asr.cpuThreads)",
-                    value: $settings.asr.cpuThreads,
-                    in: 1...ASRSettings.maxWhisperKitConcurrentSegments
-                )
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            Text("设置")
+                .font(.title)
+                .fontWeight(.semibold)
 
-            Section("翻译") {
-                Picker("提供商", selection: $settings.translation.selectedProvider) {
-                    ForEach(TranslationProvider.allCases) { provider in
-                        Text(provider.label).tag(provider)
-                    }
-                }
-                TextField("Base URL", text: activeBaseURL)
-                TextField("模型", text: activeModel)
-                if showsAPIKeyControls {
-                    LabeledContent("API密钥") {
-                        if isEditingAPIKey {
-                            SecureField("", text: $apiKey)
-                                .multilineTextAlignment(.trailing)
-                        } else {
-                            Text(savedAPIKeyExists ? "••••••••••••••••" : "")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+            Form {
+                Section("语音识别") {
+                    Picker("WhisperKit 模型", selection: $settings.asr.model) {
+                        ForEach(ASRSettings.whisperKitModelChoices) { choice in
+                            Text(choice.label).tag(choice.model)
                         }
                     }
-                    HStack {
-                        Spacer()
-                        if isEditingAPIKey {
-                            Button {
-                                saveAPIKey()
-                            } label: {
-                                Label("保存", systemImage: "key")
+                    Toggle("语音活动检测（VAD）", isOn: $settings.asr.vadEnabled)
+                    Stepper(
+                        "同时处理片段数: \(settings.asr.cpuThreads)",
+                        value: $settings.asr.cpuThreads,
+                        in: 1...ASRSettings.maxWhisperKitConcurrentSegments
+                    )
+                }
+
+                Section("翻译") {
+                    Picker("提供商", selection: $settings.translation.selectedProvider) {
+                        ForEach(TranslationProvider.allCases) { provider in
+                            Text(provider.label).tag(provider)
+                        }
+                    }
+                    TextField("Base URL", text: activeBaseURL)
+                    TextField("模型", text: activeModel)
+                    if showsAPIKeyControls {
+                        LabeledContent("API密钥") {
+                            if isEditingAPIKey {
+                                SecureField("", text: $apiKey)
+                                    .multilineTextAlignment(.trailing)
+                            } else {
+                                Text(savedAPIKeyExists ? "••••••••••••••••" : "")
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
                             }
-                            .buttonStyle(.borderedProminent)
-                            Button {
-                                cancelAPIKeyEditing()
-                            } label: {
-                                Label("取消", systemImage: "xmark")
-                            }
-                        } else {
-                            Button {
-                                beginAPIKeyEditing()
-                            } label: {
-                                Label("编辑密钥", systemImage: "pencil")
+                        }
+                        HStack {
+                            Spacer()
+                            if isEditingAPIKey {
+                                Button {
+                                    saveAPIKey()
+                                } label: {
+                                    Label("保存", systemImage: "key")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                Button {
+                                    cancelAPIKeyEditing()
+                                } label: {
+                                    Label("取消", systemImage: "xmark")
+                                }
+                            } else {
+                                Button {
+                                    beginAPIKeyEditing()
+                                } label: {
+                                    Label("编辑密钥", systemImage: "pencil")
+                                }
                             }
                         }
                     }
-                }
-                if let keychainMessage {
-                    Text(keychainMessage)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("工具") {
-                TextField("Conda", text: $settings.conda.executablePath)
-                TextField("Conda 环境", text: $settings.conda.environmentName)
-                TextField("FFmpeg", text: $settings.tools.ffmpegPath)
-            }
-
-            Section("输出文件") {
-                ForEach(OutputFile.allCases) { outputFile in
-                    Toggle(outputFile.label, isOn: outputFileBinding(outputFile))
-                }
-                if settings.video.includesVideo {
-                    Picker("视频模式", selection: videoSubtitleOutputMode) {
-                        Text(SubtitleOutputMode.mkvSoftAss.label).tag(SubtitleOutputMode.mkvSoftAss)
-                        Text(SubtitleOutputMode.mp4HardSubtitles.label).tag(SubtitleOutputMode.mp4HardSubtitles)
+                    if let keychainMessage {
+                        Text(keychainMessage)
+                            .foregroundStyle(.secondary)
                     }
-                    .pickerStyle(.radioGroup)
+                }
+
+                Section("工具") {
+                    TextField("Conda", text: $settings.conda.executablePath)
+                    TextField("Conda 环境", text: $settings.conda.environmentName)
+                    TextField("FFmpeg", text: $settings.tools.ffmpegPath)
+                }
+
+                Section("输出文件") {
+                    ForEach(OutputFile.allCases) { outputFile in
+                        Toggle(outputFile.label, isOn: outputFileBinding(outputFile))
+                    }
+                    if settings.video.includesVideo {
+                        Picker("视频模式", selection: videoSubtitleOutputMode) {
+                            Text(SubtitleOutputMode.mkvSoftAss.label).tag(SubtitleOutputMode.mkvSoftAss)
+                            Text(SubtitleOutputMode.mp4HardSubtitles.label).tag(SubtitleOutputMode.mp4HardSubtitles)
+                        }
+                        .pickerStyle(.radioGroup)
+                    }
                 }
             }
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
         .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             loadAPIKeyState()
         }
@@ -171,9 +178,15 @@ struct SettingsView: View {
     }
 
     private func beginAPIKeyEditing() {
-        apiKey = ""
-        isEditingAPIKey = true
-        keychainMessage = nil
+        do {
+            apiKey = try apiKeyStore.loadTranslationAPIKey(for: selectedProvider) ?? ""
+            isEditingAPIKey = true
+            keychainMessage = nil
+        } catch {
+            apiKey = ""
+            isEditingAPIKey = false
+            keychainMessage = "Keychain 读取失败：\(error.localizedDescription)"
+        }
     }
 
     private func cancelAPIKeyEditing() {

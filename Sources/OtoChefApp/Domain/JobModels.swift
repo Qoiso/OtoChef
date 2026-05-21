@@ -17,13 +17,30 @@ struct OtoChefJob: Codable, Equatable {
     var createdAt: Date
 }
 
+enum JobSubmissionMode: String, Codable, Equatable {
+    case parallel
+    case queued
+
+    var label: String {
+        switch self {
+        case .parallel:
+            return "并行"
+        case .queued:
+            return "排队"
+        }
+    }
+}
+
 enum RecentJobStatus: String, Codable, Equatable {
+    case queued
     case running
     case finished
     case failed
 
     var label: String {
         switch self {
+        case .queued:
+            return "等待中"
         case .running:
             return "处理中"
         case .finished:
@@ -44,6 +61,8 @@ struct RecentJob: Codable, Equatable, Identifiable {
     var createdAt: Date
     var status: RecentJobStatus
     var statusMessage: String
+    var progress: Double? = nil
+    var submissionMode: JobSubmissionMode? = nil
 }
 
 enum JobValidationError: String, Equatable, Identifiable {

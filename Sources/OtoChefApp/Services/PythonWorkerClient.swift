@@ -5,7 +5,8 @@ protocol PythonWorkerRunning {
 }
 
 final class PythonWorkerClient: PythonWorkerRunning {
-    private var runningProcess: Process?
+    private let processLock = NSLock()
+    private var runningProcesses: [Process] = []
     private static let inheritedEnvironmentKeys = [
         "PATH",
         "HOME",
@@ -71,7 +72,7 @@ final class PythonWorkerClient: PythonWorkerRunning {
                 onEvent(event)
             }
         }
-        process.terminationHandler = { process in
+        process.terminationHandler = { [weak self] process in
             outputPipe.fileHandleForReading.readabilityHandler = nil
             if !sawTerminalEvent {
                 if process.terminationStatus == 0 {
@@ -96,10 +97,28 @@ final class PythonWorkerClient: PythonWorkerRunning {
                     )
                 }
             }
+            self?.release(process)
         }
 
-        try process.run()
-        runningProcess = process
+        retain(process)
+        do {
+            try process.run()
+        } catch {
+            release(process)
+            throw error
+        }
+    }
+
+    private func retain(_ process: Process) {
+        processLock.lock()
+        runningProcesses.append(process)
+        processLock.unlock()
+    }
+
+    private func release(_ process: Process) {
+        processLock.lock()
+        runningProcesses.removeAll { $0 === process }
+        processLock.unlock()
     }
 }
 
