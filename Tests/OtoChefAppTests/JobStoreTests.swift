@@ -134,6 +134,32 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(try recentJobStore.load(), store.recentJobs)
     }
 
+    func testStartProcessingClearsMediaInputsButPreservesOutputDirectoryAfterDispatch() throws {
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        try settingsStore.save(settings)
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: settingsStore,
+            worker: CapturingPythonWorker(),
+            transcriber: StubNativeTranscriptionService(),
+            recentJobStore: MemoryRecentJobStore(),
+            toolFileExists: { _ in true }
+        )
+        store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio.wav")
+        store.draft.imageURL = URL(fileURLWithPath: "/tmp/image.png")
+        store.draft.outputDirectory = outputDirectory
+
+        store.startProcessing()
+
+        XCTAssertNil(store.draft.audioURL)
+        XCTAssertNil(store.draft.imageURL)
+        XCTAssertEqual(store.draft.outputDirectory, outputDirectory)
+    }
+
     func testStartProcessingLogsValidationErrorsWithoutCreatingJob() {
         let store = JobStore(
             apiKeyStore: MemoryAPIKeyStore(),
@@ -221,6 +247,8 @@ final class JobStoreTests: XCTestCase {
 
         store.startProcessing(mode: .parallel)
         try await waitUntil { worker.requests.count == 1 }
+        store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio-2.wav")
+        store.draft.imageURL = URL(fileURLWithPath: "/tmp/image-2.png")
         store.startProcessing(mode: .parallel)
         try await waitUntil { worker.requests.count == 2 }
 
@@ -238,6 +266,8 @@ final class JobStoreTests: XCTestCase {
 
         store.startProcessing(mode: .parallel)
         try await waitUntil { worker.requests.count == 1 }
+        store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio-2.wav")
+        store.draft.imageURL = URL(fileURLWithPath: "/tmp/image-2.png")
         store.startProcessing(mode: .queued)
         try await Task.sleep(nanoseconds: 50_000_000)
 
@@ -257,6 +287,56 @@ final class JobStoreTests: XCTestCase {
         try await waitUntil { worker.requests.count == 2 }
 
         XCTAssertEqual(store.recentJobs.first?.status, .running)
+    }
+
+    func testResourcesAreReleasedAfterSingleJobFinishes() async throws {
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        try settingsStore.save(settings)
+        let worker = ControlledPythonWorker()
+        let transcriber = ResourceTrackingTranscriptionService()
+        let store = makeRunnableStore(settingsStore: settingsStore, worker: worker, transcriber: transcriber)
+
+        store.startProcessing(mode: .parallel)
+        try await waitUntil { worker.requests.count == 1 }
+        worker.finishRun(
+            at: 0,
+            event: WorkerEvent(type: .jobFinished, stage: nil, message: "任务完成", progress: 1, path: nil)
+        )
+
+        try await waitUntil { transcriber.releaseCount == 1 }
+    }
+
+    func testResourcesAreReleasedOnlyAfterQueuedJobsAllFinish() async throws {
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        try settingsStore.save(settings)
+        let worker = ControlledPythonWorker()
+        let transcriber = ResourceTrackingTranscriptionService()
+        let store = makeRunnableStore(settingsStore: settingsStore, worker: worker, transcriber: transcriber)
+
+        store.startProcessing(mode: .parallel)
+        try await waitUntil { worker.requests.count == 1 }
+        store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio-2.wav")
+        store.draft.imageURL = URL(fileURLWithPath: "/tmp/image-2.png")
+        store.startProcessing(mode: .queued)
+
+        worker.finishRun(
+            at: 0,
+            event: WorkerEvent(type: .jobFinished, stage: nil, message: "第一个任务完成", progress: 1, path: nil)
+        )
+        try await waitUntil { worker.requests.count == 2 }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(transcriber.releaseCount, 0)
+
+        worker.finishRun(
+            at: 1,
+            event: WorkerEvent(type: .jobFinished, stage: nil, message: "第二个任务完成", progress: 1, path: nil)
+        )
+
+        try await waitUntil { transcriber.releaseCount == 1 }
     }
 
     func testAppendTracksLatestProgressAndStatusMessage() {
@@ -285,9 +365,217 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(store.statusMessage, "日语转写已完成")
     }
 
+    func testRunningRecentJobsIncludesOnlyRunningJobs() throws {
+        let runningJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/running.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/running",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 3_000),
+            status: .running,
+            statusMessage: "正在处理",
+            progress: 0.42
+        )
+        let finishedJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/finished.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/finished",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            status: .finished,
+            statusMessage: "任务已完成",
+            progress: 1
+        )
+        let queuedJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/queued.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/queued",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            status: .queued,
+            statusMessage: "等待前序任务完成",
+            progress: 0
+        )
+        let recentJobStore = MemoryRecentJobStore()
+        try recentJobStore.save([finishedJob, runningJob, queuedJob])
+
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: MemoryAppSettingsStore(),
+            recentJobStore: recentJobStore
+        )
+
+        XCTAssertEqual(store.runningRecentJobs, [runningJob])
+    }
+
+    func testCompletedRecentJobsIncludesOnlyFinishedJobs() throws {
+        let finishedJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/finished.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/finished",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            status: .finished,
+            statusMessage: "任务已完成",
+            progress: 1
+        )
+        let runningJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/running.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/running",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            status: .running,
+            statusMessage: "正在处理",
+            progress: 0.4
+        )
+        let failedJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/failed.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/failed",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 500),
+            status: .failed,
+            statusMessage: "任务失败",
+            progress: 0.4
+        )
+        let recentJobStore = MemoryRecentJobStore()
+        try recentJobStore.save([runningJob, failedJob, finishedJob])
+
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: MemoryAppSettingsStore(),
+            recentJobStore: recentJobStore
+        )
+
+        XCTAssertEqual(store.completedRecentJobs, [finishedJob])
+    }
+
+    func testUserLogTextOmitsInternalJobStartAndStagePrefix() {
+        let store = JobStore(apiKeyStore: MemoryAPIKeyStore(), settingsStore: MemoryAppSettingsStore())
+
+        store.append(
+            event: WorkerEvent(
+                type: .jobStarted,
+                stage: nil,
+                message: "Job started",
+                progress: nil,
+                path: nil
+            )
+        )
+        store.append(
+            event: WorkerEvent(
+                type: .stageStarted,
+                stage: "asr",
+                message: "正在用 WhisperKit/Core ML 识别日语音频",
+                progress: 0.05,
+                path: nil
+            )
+        )
+
+        XCTAssertFalse(store.userLogText.contains("Job started"))
+        XCTAssertFalse(store.userLogText.contains("[asr]"))
+        XCTAssertTrue(store.userLogText.contains("正在用 WhisperKit/Core ML 识别日语音频"))
+        XCTAssertTrue(store.userLogText.contains("(5%)"))
+    }
+
+    func testDeveloperLogFileKeepsFullLatestRunEvents() throws {
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        try settingsStore.save(settings)
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: settingsStore,
+            worker: CapturingPythonWorker(),
+            transcriber: StubNativeTranscriptionService(),
+            recentJobStore: MemoryRecentJobStore(),
+            toolFileExists: { _ in true }
+        )
+        store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio.wav")
+        store.draft.imageURL = URL(fileURLWithPath: "/tmp/image.png")
+        store.draft.outputDirectory = outputDirectory
+
+        store.startProcessing()
+        let jobID = try XCTUnwrap(store.recentJobs.first?.id)
+        store.append(
+            event: WorkerEvent(
+                type: .stageStarted,
+                stage: "asr",
+                message: "正在识别",
+                progress: 0.05,
+                path: "/tmp/transcript.ja.json"
+            ),
+            for: jobID
+        )
+
+        let logURL = try XCTUnwrap(store.developerLogFileURL)
+        let logText = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertTrue(logText.contains("job_id=\(jobID.uuidString)"))
+        XCTAssertTrue(logText.contains("type=stage_started"))
+        XCTAssertTrue(logText.contains("stage=asr"))
+        XCTAssertTrue(logText.contains("path=/tmp/transcript.ja.json"))
+        XCTAssertEqual(store.developerLogText, logText)
+    }
+
+    func testClearCompletedRecentJobRemovesOnlyFinishedJobAndPersists() throws {
+        let finishedJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/finished.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/finished",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            status: .finished,
+            statusMessage: "任务已完成",
+            progress: 1
+        )
+        let runningJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/running.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/running",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            status: .running,
+            statusMessage: "正在处理",
+            progress: 0.4
+        )
+        let recentJobStore = MemoryRecentJobStore()
+        try recentJobStore.save([finishedJob, runningJob])
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: MemoryAppSettingsStore(),
+            recentJobStore: recentJobStore
+        )
+
+        store.clearCompletedRecentJob(id: finishedJob.id)
+        store.clearCompletedRecentJob(id: runningJob.id)
+
+        XCTAssertEqual(store.recentJobs, [runningJob])
+        XCTAssertEqual(try recentJobStore.load(), [runningJob])
+    }
+
     private func makeRunnableStore(
         settingsStore: MemoryAppSettingsStore,
-        worker: ControlledPythonWorker
+        worker: ControlledPythonWorker,
+        transcriber: any NativeTranscriptionService = StubNativeTranscriptionService()
     ) -> JobStore {
         let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -295,7 +583,7 @@ final class JobStoreTests: XCTestCase {
             apiKeyStore: MemoryAPIKeyStore(),
             settingsStore: settingsStore,
             worker: worker,
-            transcriber: StubNativeTranscriptionService(),
+            transcriber: transcriber,
             toolFileExists: { _ in true }
         )
         store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio.wav")
@@ -351,4 +639,20 @@ private struct ThrowingPythonWorker: PythonWorkerRunning {
 
 private struct StubNativeTranscriptionService: NativeTranscriptionService {
     func transcribe(audioURL: URL, settings: ASRSettings, outputURL: URL, projectRoot: URL) async throws { }
+}
+
+private final class ResourceTrackingTranscriptionService: NativeTranscriptionService {
+    private let queue = DispatchQueue(label: "OtoChefTests.ResourceTrackingTranscriptionService")
+    private var _releaseCount = 0
+    var releaseCount: Int {
+        queue.sync { _releaseCount }
+    }
+
+    func transcribe(audioURL: URL, settings: ASRSettings, outputURL: URL, projectRoot: URL) async throws { }
+
+    func releaseResources() async {
+        queue.sync {
+            _releaseCount += 1
+        }
+    }
 }

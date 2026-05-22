@@ -4,6 +4,11 @@ import WhisperKit
 
 protocol NativeTranscriptionService {
     func transcribe(audioURL: URL, settings: ASRSettings, outputURL: URL, projectRoot: URL) async throws
+    func releaseResources() async
+}
+
+extension NativeTranscriptionService {
+    func releaseResources() async { }
 }
 
 struct WhisperKitTranscriptEnvelope: Codable, Equatable {
@@ -17,9 +22,11 @@ struct WhisperKitTranscriptSegment: Codable, Equatable {
     var text: String
 }
 
-struct WhisperKitTranscriptionService: NativeTranscriptionService {
+actor WhisperKitTranscriptionService: NativeTranscriptionService {
     private let encoder: JSONEncoder
     private let fileManager: FileManager
+    private var cachedWhisperKit: WhisperKit?
+    private var cachedKey: WhisperKitCacheKey?
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -38,7 +45,12 @@ struct WhisperKitTranscriptionService: NativeTranscriptionService {
             localModelFolder: localModelFolder,
             settings: settings
         )
-        let whisperKit = try await WhisperKit(config)
+        let key = WhisperKitCacheKey(
+            modelBasePath: modelBaseURL.path,
+            localModelFolderPath: localModelFolder?.path,
+            model: settings.model
+        )
+        let whisperKit = try await whisperKit(for: key, config: config)
         let options = Self.makeDecodingOptions(settings: settings)
         let primarySegments = try await Self.transcribeSegments(
             audioPath: audioURL.path,
@@ -62,6 +74,32 @@ struct WhisperKitTranscriptionService: NativeTranscriptionService {
         }
         let data = try encoder.encode(WhisperKitTranscriptEnvelope(segments: segments))
         try data.write(to: outputURL, options: [.atomic])
+    }
+
+    func releaseResources() async {
+        guard let cachedWhisperKit else {
+            return
+        }
+        cachedWhisperKit.clearState()
+        await cachedWhisperKit.unloadModels()
+        self.cachedWhisperKit = nil
+        cachedKey = nil
+    }
+
+    private func whisperKit(for key: WhisperKitCacheKey, config: WhisperKitConfig) async throws -> WhisperKit {
+        if let cachedWhisperKit, cachedKey == key {
+            return cachedWhisperKit
+        }
+
+        if let cachedWhisperKit {
+            cachedWhisperKit.clearState()
+            await cachedWhisperKit.unloadModels()
+        }
+
+        let whisperKit = try await WhisperKit(config)
+        cachedWhisperKit = whisperKit
+        cachedKey = key
+        return whisperKit
     }
 
     static func usesVADChunking(settings: ASRSettings) -> Bool {
@@ -231,6 +269,12 @@ struct WhisperKitTranscriptionService: NativeTranscriptionService {
         )
         .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
+
+private struct WhisperKitCacheKey: Equatable {
+    var modelBasePath: String
+    var localModelFolderPath: String?
+    var model: String
 }
 
 struct WhisperKitModelPathResolver {

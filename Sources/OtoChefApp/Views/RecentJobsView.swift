@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RecentJobsView: View {
@@ -9,12 +10,20 @@ struct RecentJobsView: View {
                 .font(.title)
                 .fontWeight(.semibold)
 
-            if store.recentJobs.isEmpty {
-                ContentUnavailableView("暂无最近任务", systemImage: "clock")
+            if store.completedRecentJobs.isEmpty {
+                ContentUnavailableView("暂无已完成任务", systemImage: "clock")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(store.recentJobs) { job in
-                    JobProgressRow(job: job)
+                List(store.completedRecentJobs) { job in
+                    JobProgressRow(
+                        job: job,
+                        onOpenOutputDirectory: {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: job.outputDirectory, isDirectory: true))
+                        },
+                        onClear: {
+                            store.clearCompletedRecentJob(id: job.id)
+                        }
+                    )
                 }
                 .listStyle(.inset)
             }

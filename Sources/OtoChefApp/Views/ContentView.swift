@@ -5,6 +5,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case recentJobs = "最近任务"
     case settings = "设置"
     case diagnostics = "诊断"
+    case logs = "日志"
 
     var id: String { rawValue }
 
@@ -18,6 +19,8 @@ enum AppSection: String, CaseIterable, Identifiable {
             return "gearshape"
         case .diagnostics:
             return "stethoscope"
+        case .logs:
+            return "doc.text.magnifyingglass"
         }
     }
 }
@@ -51,6 +54,8 @@ struct ContentView: View {
                 SettingsView(settings: $store.draft.settings)
             case .diagnostics:
                 DiagnosticsView(store: store)
+            case .logs:
+                LogsView(store: store)
             }
         }
         .onChange(of: store.draft.settings) {

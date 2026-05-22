@@ -1,11 +1,47 @@
 import AppKit
 import SwiftUI
 
+enum JobProgressRowMode {
+    case detailed
+    case compact
+}
+
 struct JobProgressRow: View {
     var job: RecentJob
-    var showsFinderButton = true
+    var mode: JobProgressRowMode = .detailed
+    var showsFinderButton = false
+    var onOpenOutputDirectory: (() -> Void)?
+    var onClear: (() -> Void)?
 
     var body: some View {
+        if mode == .compact {
+            compactBody
+        } else {
+            detailedBody
+        }
+    }
+
+    private var compactBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(URL(fileURLWithPath: job.audioPath).lastPathComponent)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text(progressValue.formatted(.percent.precision(.fractionLength(0))))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            ProgressView(value: progressValue, total: 1)
+        }
+        .padding(.vertical, 8)
+    }
+
+    private var detailedBody: some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: statusImage)
                 .foregroundStyle(statusColor)
@@ -54,7 +90,23 @@ struct JobProgressRow: View {
                 .lineLimit(1)
             }
 
-            if showsFinderButton {
+            if job.status == .finished, onOpenOutputDirectory != nil || onClear != nil {
+                HStack(spacing: 8) {
+                    if let onOpenOutputDirectory {
+                        Button("打开", action: onOpenOutputDirectory)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .help("打开输出位置")
+                    }
+
+                    if let onClear {
+                        Button("清除", action: onClear)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .help("从最近任务中清除")
+                    }
+                }
+            } else if showsFinderButton {
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: job.workingDirectory)])
                 } label: {
