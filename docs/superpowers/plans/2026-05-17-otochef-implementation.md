@@ -1,5 +1,7 @@
 # OtoChef Implementation Plan
 
+> Historical plan: this document records the initial MVP implementation approach and is not the current architecture reference. The current app uses native Swift WhisperKit/Core ML ASR, stores Swift domain types under `Sources/OtoChefApp/Domain`, and the Python worker no longer depends on `faster-whisper`. Use `README.md`, `AGENTS.md`, and the current source tree for present-day behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the OtoChef macOS MVP: a SwiftUI app that launches an isolated conda Python worker to transcribe Japanese audio, translate to Chinese, generate subtitles, and create a still-image MP4 with burned-in subtitles.

@@ -6,9 +6,9 @@ Make translation API settings feel persistent and provider-specific. Users shoul
 
 ## Current Behavior
 
-OtoChef stores the translation API key in macOS Keychain using one generic account, `translation-api-key`. The settings view keeps the key field in local SwiftUI state and initializes it as an empty string every time the view is created. The key may be saved, but the UI does not reload Keychain state or show a saved placeholder, so reopening the app looks like the key disappeared.
+OtoChef stores translation API keys in macOS Keychain with provider-specific accounts named `translation-api-key.<provider>`. The settings view checks whether the selected provider has a saved key, shows a masked placeholder when not editing, and loads the existing Keychain value into the edit field after the user chooses "编辑密钥".
 
-The worker currently treats every remote translation API as OpenAI-compatible `/chat/completions`. That works for OpenAI-compatible providers such as DeepSeek, Ollama, LM Studio, and custom gateways, but it does not model Claude's Messages API or Gemini's generateContent API.
+The worker routes OpenAI-compatible providers through `/chat/completions`, Anthropic-Claude through Messages API, and Google-Gemini through generateContent.
 
 ## Provider Model
 
@@ -34,7 +34,6 @@ Each provider configuration stores:
 - `provider`
 - `baseURL`
 - `model`
-- `requiresAPIKey`
 
 The API key itself remains outside `UserDefaults` and is saved in Keychain under a provider-specific account:
 
@@ -67,14 +66,13 @@ The translation settings section should show:
 - provider picker
 - provider-specific base URL field when relevant
 - model field
-- API key secure field for providers that accept a key
-- clear saved state: "已保存到本机 Keychain" when a key exists
-- save key button that only overwrites the current provider's key
-- clear key button when a key exists
-- prompt editor
-- timeout and retry controls if already present or easy to expose
+- API key controls for providers that accept a key
+- masked saved state when a key exists and editing is locked
+- an explicit "编辑密钥" action that loads the current provider's saved key into the edit field
+- save and cancel buttons while editing
+- prompt, timeout, and retry settings remain internal configuration rather than normal settings UI controls
 
-The secure field should not display the real key. When Keychain already has a value, it can show a bullet placeholder such as `••••••••••••••••` and a status message. Editing the field and pressing save replaces the saved key. Clearing the field should not silently delete the saved key; deletion requires the clear button.
+The locked state should not display the real key. When Keychain already has a value, it can show a bullet placeholder such as `••••••••••••••••`. Editing should display the loaded key text so users can inspect and modify it. Saving non-empty text replaces the saved key. Saving an empty edited field clears the selected provider's saved key.
 
 Explain Keychain in the UI using concise app-integrated wording: the key is saved in the user's local macOS Keychain for OtoChef. Avoid implying it is necessarily visible in the Passwords app.
 
@@ -94,7 +92,7 @@ Validation should check the selected provider's active config:
 
 - base URL is required for remote HTTP providers
 - model is required
-- API key is required only for providers that need it when starting a job
+- API keys are provider-specific and loaded only for jobs whose selected outputs require translation
 
 Ollama and LM Studio should not require an API key.
 

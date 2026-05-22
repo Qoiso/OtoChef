@@ -1,5 +1,7 @@
 # Translation Provider Settings Implementation Plan
 
+> Historical plan: this document records the provider-settings implementation work. The current app stores Swift domain types under `Sources/OtoChefApp/Domain`; API key editing is locked by default but shows the loaded Keychain value after the explicit "编辑密钥" action.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add provider-specific translation settings and Keychain-backed per-provider API keys for DeepSeek, ChatGPT/OpenAI, Claude, Gemini, Ollama, LM Studio, and OpenAI-compatible APIs.

@@ -33,6 +33,12 @@ cd worker
 /opt/homebrew/bin/conda run -n otochef python -m pytest
 ```
 
+For visible macOS UI changes, also verify that the bundled app starts:
+
+```sh
+script/build_and_run.sh --verify
+```
+
 ## Pull Requests
 
 Pull requests should include:

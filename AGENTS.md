@@ -20,7 +20,7 @@ Translation configuration is provider-specific. Keep base URL, model name, and A
 
 Subtitle translation should preserve the full script context. Do not automatically split remote API translation into parallel batches unless the user explicitly accepts the consistency tradeoff. DeepSeek requests should keep thinking disabled and use JSON object output to avoid slow reasoning responses while preserving structured parsing. Worker translation responses must preserve a one-to-one mapping for every expected segment ID; reject missing, extra, or duplicate IDs with clear errors before subtitle generation.
 
-Keep translation prompt text as internal configuration rather than exposing it in the normal settings UI. API key controls should stay locked/read-only by default, reveal editing only after an explicit "编辑密钥" action, preload the provider's existing Keychain key into the edit field, and treat saving an empty edited key as clearing the provider's stored Keychain entry. Treat provider request errors as secret-bearing: redact API keys and token-like URL query parameters before emitting worker events, persisting recent-job status, or surfacing errors in the UI.
+Keep translation prompt text as internal configuration rather than exposing it in the normal settings UI. API key controls should stay locked/read-only by default with only a masked saved-value placeholder; reveal editing only after an explicit "编辑密钥" action, preload and visibly display the provider's existing Keychain key in the edit field, and treat saving an empty edited key as clearing the provider's stored Keychain entry. Treat provider request errors as secret-bearing: redact API keys and token-like URL query parameters before emitting worker events, persisting recent-job status, or surfacing errors in the UI.
 
 ## Job Execution, Queueing, and Diagnostics
 
@@ -52,26 +52,40 @@ Use 4-space indentation for Swift and Python. Swift types use `UpperCamelCase`; 
 
 Add or update tests for behavior changes. Swift test files should follow the existing `FeatureTests.swift` pattern, such as `JobValidatorTests.swift`. Python tests should follow `test_feature.py`, such as `test_pipeline.py`. Run the relevant targeted suite during development and both `swift test` and `cd worker && pytest` before handing off cross-boundary changes.
 
-## Commit & Pull Request Guidelines
+## Git Workflow & Pull Requests
 
-Recent history uses concise imperative subjects, often Conventional Commit prefixes such as `feat:`, `fix:`, and `chore:`. Follow that style: `fix: harden worker pipeline` or `feat: add worker progress events`. Pull requests should describe the user-visible change, list Swift and Python tests run, link related issues or plans, and include screenshots or screen recordings for UI changes.
+The public GitHub default branch is `main`. This repository is currently mostly single-maintainer, so do not force a pull-request workflow for every local change. Match the Git workflow to the user's request:
 
-The public GitHub default branch is `main`.
+- For normal coding or documentation edits, inspect `git status -sb` and the relevant diff, then leave changes unstaged and uncommitted unless the user asks for a commit or handoff.
+- When committing, stage only the intended files. Prefer explicit path staging; use `git add -p` when a file contains mixed user and agent changes. Never stage unrelated local work.
+- Use concise imperative commit subjects, usually with Conventional Commit prefixes such as `feat:`, `fix:`, `docs:`, `test:`, or `chore:`. Add a body only when the rationale, risk, migration note, or security context is not obvious.
+- Keep commits atomic and reviewable: one logical change per commit, with tests or docs in the same commit when they prove or explain that change. Amend unpublished local commits instead of creating noisy follow-up commits.
+- For this repository's usual full GitHub handoff, commit directly on `main` and push to `origin/main` unless the user asks for a branch or pull request. Use a short-lived `codex/<description>` branch for PR-based or explicitly isolated work.
 
-### Version Control Completion Standard
+### Validation Before Handoff
 
-When asked to commit, merge, push, publish, or otherwise "finish the Git work," complete the repository handoff rather than stopping at a local commit. Keep the workflow explicit, auditable, and conservative:
+Before committing, pushing, or handing off finished work, run `git diff --check` plus the relevant local validation:
 
-- Start with `git status -sb`, current branch, and a diff review. Do not stage unrelated user changes. Prefer explicit path staging, and use `git add -p` when the touched files contain mixed concerns.
-- Prefer a short-lived topic branch for substantive code changes. Direct `main` commits are acceptable only for small documentation/configuration-only updates or when the user explicitly asks for a direct `main` handoff.
-- Keep commits atomic and reviewable: one logical change per commit, with tests/docs in the same commit when they prove or explain that change. Avoid noisy "fix typo after commit" follow-up commits; amend local unpublished commits when appropriate.
-- Use a short Conventional Commit-style subject (`fix:`, `feat:`, `docs:`, `test:`, `chore:`). Add a body when the rationale, risk, migration note, or security context is not obvious from the diff.
-- Before committing, run `git diff --check` and the relevant local validation. For Swift-only changes, run Swift tests; for worker-only changes, run Python worker tests; for cross-boundary changes, run both documented test commands. For docs-only changes, `git diff --check` is usually sufficient unless the docs describe executable behavior.
-- Before merging a topic branch into `main`, make sure local checks pass on the branch. Merge back to `main` only intentionally, prefer fast-forward when possible, then rerun the relevant checks on merged `main`.
-- Push the final branch requested by the user. For direct `main` handoffs, verify that local `main` is clean and synced with `origin/main` afterward.
-- When GitHub Actions is configured and network/auth access is available, verify the latest CI run for the pushed commit before calling the Git work complete. This repository's CI must show both `Swift tests` and `Python worker tests` green. If CI is pending, wait; if it fails, report the failing job and either fix it or ask for direction. If CI cannot be checked, state the exact blocker.
-- After a successful local merge, delete only the local topic branch that was fully merged. Never force-push, delete remote branches, rewrite published history, or discard work without explicit user approval.
-- Final handoff should state the commit SHA, branch pushed, local validation commands and results, GitHub Actions result, and whether `main` is synced with `origin/main`.
+- Swift-only changes: run the documented Swift test command.
+- Worker-only changes: run the documented Python worker test command.
+- Cross-boundary changes: run both Swift and Python tests.
+- UI-visible app changes: run the relevant tests and use `script/build_and_run.sh --verify` when practical.
+- Docs-only changes: `git diff --check` is sufficient unless the docs describe executable behavior.
+
+### Publishing To GitHub
+
+Use the Codex GitHub plugin publish workflow only when the user explicitly asks for GitHub publication, such as push, publish, open a PR, merge, or otherwise "finish the Git work." A local commit-only request should stop after the local commit unless the user asks for a broader handoff. For this single-maintainer repository, publication defaults to direct `main` delivery without a PR unless the user explicitly requests a branch or pull request. In publication mode:
+
+- Use local `git` for branch creation, staging, commits, and pushes.
+- Prefer the GitHub app/plugin for PR creation only when a PR is requested and the branch is pushed.
+- Use `gh` where the plugin expects it: authentication checks, current-branch PR discovery, fallback PR creation, and GitHub Actions checks or logs.
+- When a PR is requested, open it as a draft by default unless the user asks for a ready-for-review PR. Pull requests should include a user-visible summary, tests run, related issues or plans when relevant, and screenshots or recordings for UI changes.
+
+GitHub Actions runs `Swift tests` and `Python worker tests` on pull requests and on pushes to `main`. When GitHub access is available and the user requested a publish, merge, or complete GitHub handoff, verify the latest CI run for the pushed commit before calling the Git work complete. If CI is pending, wait; if it fails, report the failing job and either fix it or ask for direction. If CI cannot be checked, state the exact blocker.
+
+Merge back to `main` only when the user explicitly asks. Prefer fast-forward merges, rerun the relevant local checks on merged `main`, then push the requested final branch. After a successful local merge, delete only the local topic branch that was fully merged. Never force-push, delete remote branches, rewrite published history, or discard work without explicit user approval.
+
+Final handoff for local-only work should state the changed files and validation results. Final handoff for published work should also state the commit SHA, branch pushed, PR URL if created, GitHub Actions result, and whether local `main` is synced with `origin/main`.
 
 ## Public Documentation
 

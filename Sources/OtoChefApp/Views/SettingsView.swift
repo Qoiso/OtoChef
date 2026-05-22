@@ -40,7 +40,7 @@ struct SettingsView: View {
                     if showsAPIKeyControls {
                         LabeledContent("API密钥") {
                             if isEditingAPIKey {
-                                SecureField("", text: $apiKey)
+                                TextField("", text: $apiKey)
                                     .multilineTextAlignment(.trailing)
                             } else {
                                 Text(savedAPIKeyExists ? "••••••••••••••••" : "")

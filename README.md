@@ -10,7 +10,8 @@ OtoChef is a macOS subtitle pipeline for Japanese audio and video workflows. The
 - Local WhisperKit model storage under `Models/whisperkit`.
 - Provider-specific translation settings for OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, and OpenAI-compatible APIs.
 - API keys stored in macOS Keychain instead of settings JSON or job files.
-- Subtitle output as external SRT/ASS, MKV with ASS soft subtitles, or MP4 with burned-in subtitles.
+- Selectable video, Japanese subtitle, Chinese subtitle, and bilingual subtitle outputs.
+- Video output as MKV with ASS soft subtitles or MP4 with burned-in subtitles.
 - A small Python worker for translation, subtitle rendering, progress events, and FFmpeg orchestration.
 
 ## Requirements
@@ -58,13 +59,23 @@ Remote API keys are stored in macOS Keychain accounts named `translation-api-key
 
 Local OpenAI-compatible endpoints such as Ollama and LM Studio can be used without an API key unless your local server requires one.
 
-## Subtitle Output
+## Output Files
 
-Choose the output mode in Settings:
+Choose one or more output files in Settings:
 
-- External subtitles: writes SRT and ASS only, and does not invoke FFmpeg.
+- Japanese subtitles: writes `subtitles.ja.srt` and `subtitles.ja.ass`.
+- Chinese subtitles: writes `subtitles.zh.srt` and `subtitles.zh.ass`.
+- Bilingual subtitles: writes `subtitles.ja-zh.srt` and `subtitles.ja-zh.ass`.
+- Video: creates a video from the selected still image and audio.
+
+When video is selected, choose the video subtitle mode:
+
 - MKV + ASS soft subtitles: creates `output.mkv` with ASS subtitles attached.
 - MP4 hard subtitles: creates `output.mp4` with ASS subtitles burned in. This requires an FFmpeg build with the `subtitles` filter.
+
+Images and FFmpeg are required only for video output. Translation settings, and an API key for providers that need one, are used only for Chinese, bilingual, or video output.
+
+User-visible artifacts are written directly into the selected output directory, which defaults to project-root `output/`. Internal files such as `job.json`, `transcript.ja.json`, and `translation.zh.json` are stored under `output/.otochef/<job-id>/`; the latest developer log is written to `output/.otochef/latest-run.log`.
 
 Translation text is treated as untrusted subtitle content. OtoChef preserves visible text while neutralizing ASS override/control syntax before writing `.ass`.
 

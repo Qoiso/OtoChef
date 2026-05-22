@@ -4,20 +4,20 @@ Date: 2026-05-17
 
 ## Goal
 
-OtoChef is a native macOS utility for making a Chinese-subtitled video from one Japanese audio file and one still image. The first version takes:
+OtoChef is a native macOS utility for making subtitles and optional videos from Japanese audio. The current app takes:
 
 - a Japanese audio file,
-- a still image,
+- an optional still image when video output is selected,
 - an output folder,
 - user-configured ASR, translation, and FFmpeg settings,
 
 and produces:
 
-- the original Japanese audio as the audio track,
-- editable Chinese subtitle files,
-- optionally, an MKV with ASS soft subtitles or an MP4 with burned-in Chinese subtitles.
+- selected subtitle files: Japanese, Chinese, bilingual, or any combination,
+- optionally, a static-image video using the original Japanese audio,
+- either an MKV with ASS soft subtitles or an MP4 with burned-in subtitles when video output is selected.
 
-The MVP does not generate new audio. It does not include TTS, voice cloning, dubbing, batch processing, or a subtitle timeline editor.
+The MVP does not generate new audio. It does not include TTS, voice cloning, dubbing, batch media import, or a subtitle timeline editor.
 
 ## Architecture
 
@@ -39,7 +39,7 @@ The project provides:
 - `environment.yml` for the `otochef` conda environment,
 - a setup script for creating or updating that environment,
 - a worker entrypoint run through `conda run -n otochef ...`,
-- preflight checks that verify the configured conda executable, environment, imports, model path, translator settings, output folder, and FFmpeg executable.
+- manual diagnostics that check the configured conda executable, environment name, FFmpeg path, model folder, selected model folder, and worker directory.
 
 ## ASR Design
 
@@ -91,19 +91,21 @@ Pipeline:
 
 1. Validate inputs and configuration.
 2. Run native WhisperKit ASR and write `transcript.ja.json`.
-3. Launch the worker to translate segments and write `translation.zh.json`.
-4. Generate `subtitles.zh.srt` and `subtitles.zh.ass`.
-5. Depending on `subtitleOutputMode`, either stop after SRT/ASS, create `output.mkv` with ASS soft subtitles, or create `output.mp4` with burned-in ASS subtitles.
+3. Launch the worker. Translate segments and write `translation.zh.json` only when the selected outputs require Chinese text.
+4. Generate the selected visible subtitle files: Japanese, Chinese, and/or bilingual SRT/ASS.
+5. If video output is selected, create `output.mkv` with ASS soft subtitles or `output.mp4` with burned-in ASS subtitles, depending on `subtitleOutputMode`.
 6. Return artifact paths and a completion report to the UI.
 
 Artifacts:
 
-- `job.json`: selected files, output folder, ASR settings, translation settings, subtitle style, and video settings.
-- `transcript.ja.json`: ASR output with segment IDs, start times, end times, and Japanese text.
-- `translation.zh.json`: Chinese text mapped to original segment IDs.
-- `subtitles.zh.srt`: editable subtitle file.
-- `subtitles.zh.ass`: styled subtitle file used for burn-in.
+- `output/.otochef/<job-id>/job.json`: selected files, output folder, ASR settings, translation settings, subtitle style, and video settings.
+- `output/.otochef/<job-id>/transcript.ja.json`: ASR output with segment IDs, start times, end times, and Japanese text.
+- `output/.otochef/<job-id>/translation.zh.json`: Chinese text mapped to original segment IDs when translation is needed.
+- `subtitles.ja.srt` and `subtitles.ja.ass`: optional Japanese subtitle files.
+- `subtitles.zh.srt` and `subtitles.zh.ass`: optional Chinese subtitle files.
+- `subtitles.ja-zh.srt` and `subtitles.ja-zh.ass`: optional bilingual subtitle files.
 - `output.mkv` or `output.mp4`: optional final video, depending on subtitle output mode.
+- `output/.otochef/latest-run.log`: latest complete developer/support log for the selected output directory.
 
 JSONL worker events include:
 
@@ -122,9 +124,9 @@ Default subtitle/video behavior:
 - resolution: `1920x1080`,
 - image fit mode: `contain`,
 - background fill: black,
-- subtitle output mode: external SRT/ASS only,
-- optional MKV + ASS soft subtitles,
-- optional MP4 hard subtitles when FFmpeg supports the `subtitles` filter.
+- selected output files default to Chinese subtitles,
+- video output is optional and is the only mode that requires an image and FFmpeg,
+- video subtitle mode supports MKV + ASS soft subtitles or MP4 hard subtitles when FFmpeg supports the `subtitles` filter.
 
 Subtitle behavior:
 
@@ -132,7 +134,7 @@ Subtitle behavior:
 - long Chinese lines are wrapped before ASS generation,
 - default placement is bottom center,
 - default style should be legible over varied images,
-- SRT and ASS files are always saved next to the final video.
+- visible SRT, ASS, MKV, and MP4 artifacts are saved directly in the selected output directory.
 
 ## UI Design
 
@@ -143,9 +145,8 @@ Primary main-window controls:
 - choose audio,
 - choose image,
 - choose output folder,
-- start processing,
-- current stage,
-- progress bar,
+- start processing in queued or parallel mode,
+- active queue/progress rows,
 - warning and log tail,
 - output artifact links.
 
@@ -154,7 +155,8 @@ Sidebar sections:
 - New Job,
 - Recent Jobs,
 - Settings,
-- Diagnostics.
+- Diagnostics,
+- Logs.
 
 Settings sections:
 
@@ -167,15 +169,15 @@ The Settings view includes WhisperKit model guidance and a project-local model f
 
 ## Error Handling
 
-Preflight errors block the Start button and show specific remediation:
+Draft validation errors are shown in the New Task log without creating a recent-job record:
 
 - missing conda executable,
 - missing `otochef` environment,
-- missing Python dependency,
 - invalid ASR model path or model ID,
 - invalid translator config,
-- missing FFmpeg,
-- unwritable output folder.
+- missing FFmpeg when video output is selected,
+- missing output folder,
+- missing audio, or missing image when video output is selected.
 
 Runtime errors include:
 
