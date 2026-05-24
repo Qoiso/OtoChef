@@ -215,11 +215,11 @@ private struct JobLogPanel: View {
 
 private extension View {
     func panelCardStyle() -> some View {
-        background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.primary.opacity(0.08), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
+            .shadow(color: .black.opacity(0.08), radius: 14, y: 6)
     }
 }

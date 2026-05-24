@@ -17,6 +17,7 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 PKG_INFO="$APP_CONTENTS/PkgInfo"
 MODULE_CACHE="$ROOT_DIR/.build/module-cache"
 APP_ICON_SOURCE="$ROOT_DIR/Resources/AppIcon.icns"
+DETAIL_BACKGROUND_SOURCE="$ROOT_DIR/Resources/EmbossedDetailBackground.png"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
@@ -35,6 +36,7 @@ cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 
 cp "$APP_ICON_SOURCE" "$APP_RESOURCES/AppIcon.icns"
+cp "$DETAIL_BACKGROUND_SOURCE" "$APP_RESOURCES/EmbossedDetailBackground.png"
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

@@ -45,21 +45,31 @@ struct ContentView: View {
             }
             .listStyle(.sidebar)
         } detail: {
-            switch selection.wrappedValue {
-            case .newJob:
-                NewJobView(store: store)
-            case .recentJobs:
-                RecentJobsView(store: store)
-            case .settings:
-                SettingsView(settings: $store.draft.settings)
-            case .diagnostics:
-                DiagnosticsView(store: store)
-            case .logs:
-                LogsView(store: store)
+            ZStack {
+                EmbossedBackgroundView()
+
+                selectedDetailView
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: store.draft.settings) {
             store.saveSettings()
+        }
+    }
+
+    @ViewBuilder
+    private var selectedDetailView: some View {
+        switch selection.wrappedValue {
+        case .newJob:
+            NewJobView(store: store)
+        case .recentJobs:
+            RecentJobsView(store: store)
+        case .settings:
+            SettingsView(settings: $store.draft.settings)
+        case .diagnostics:
+            DiagnosticsView(store: store)
+        case .logs:
+            LogsView(store: store)
         }
     }
 }
