@@ -13,6 +13,8 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.asr.beamSize, 1)
         XCTAssertEqual(settings.asr.cpuThreads, 4)
         XCTAssertEqual(settings.conda.environmentName, "otochef")
+        XCTAssertEqual(settings.tools.ytDLPPath, ToolSettings.homebrewYtDLPPath)
+        XCTAssertEqual(settings.videoDownload.preset, .videoAudioMP4)
         XCTAssertEqual(settings.video.width, 1920)
         XCTAssertEqual(settings.video.height, 1080)
         XCTAssertEqual(settings.video.subtitleOutputMode, .external)
@@ -92,6 +94,30 @@ final class AppSettingsTests: XCTestCase {
         let path = ToolSettings.defaultFFmpegPath(fileExists: { _ in false })
 
         XCTAssertEqual(path, ToolSettings.homebrewFFmpegPath)
+    }
+
+    func testToolSettingsDecodeDefaultsYtDLPPathForOlderSavedSettings() throws {
+        let json = """
+        {
+          "ffmpegPath": "/custom/bin/ffmpeg"
+        }
+        """
+
+        let settings = try JSONDecoder().decode(ToolSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(settings.ffmpegPath, "/custom/bin/ffmpeg")
+        XCTAssertEqual(settings.ytDLPPath, ToolSettings.homebrewYtDLPPath)
+    }
+
+    func testAppSettingsDecodeDefaultsVideoDownloadForOlderSavedSettings() throws {
+        let data = try JSONEncoder().encode(AppSettings.defaults)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "videoDownload")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let settings = try JSONDecoder().decode(AppSettings.self, from: legacyData)
+
+        XCTAssertEqual(settings.videoDownload.preset, .videoAudioMP4)
     }
 
     func testResolvingToolDefaultsMigratesOldDefaultFFmpegPathToFFmpegFull() {

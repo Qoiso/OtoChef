@@ -1,7 +1,8 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case newJob = "新任务"
+    case audio = "音声"
+    case video = "视频"
     case recentJobs = "最近任务"
     case settings = "设置"
     case diagnostics = "诊断"
@@ -11,8 +12,10 @@ enum AppSection: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .newJob:
-            return "plus.circle"
+        case .audio:
+            return "waveform"
+        case .video:
+            return "arrow.down.circle"
         case .recentJobs:
             return "clock"
         case .settings:
@@ -27,11 +30,14 @@ enum AppSection: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @State private var store = JobStore()
-    @SceneStorage("selectedSection") private var selectedSectionRawValue = AppSection.newJob.rawValue
+    @SceneStorage("selectedSection") private var selectedSectionRawValue = AppSection.audio.rawValue
 
     private var selection: Binding<AppSection> {
         Binding {
-            AppSection(rawValue: selectedSectionRawValue) ?? .newJob
+            if selectedSectionRawValue == "新任务" {
+                return .audio
+            }
+            return AppSection(rawValue: selectedSectionRawValue) ?? .audio
         } set: { newValue in
             selectedSectionRawValue = newValue.rawValue
         }
@@ -60,8 +66,10 @@ struct ContentView: View {
     @ViewBuilder
     private var selectedDetailView: some View {
         switch selection.wrappedValue {
-        case .newJob:
+        case .audio:
             NewJobView(store: store)
+        case .video:
+            VideoDownloadView(store: store)
         case .recentJobs:
             RecentJobsView(store: store)
         case .settings:

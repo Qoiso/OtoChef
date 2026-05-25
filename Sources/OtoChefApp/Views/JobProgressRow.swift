@@ -24,7 +24,7 @@ struct JobProgressRow: View {
     private var compactBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Text(URL(fileURLWithPath: job.audioPath).lastPathComponent)
+                Text(titleText)
                     .font(.headline)
                     .lineLimit(1)
 
@@ -49,9 +49,13 @@ struct JobProgressRow: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text(URL(fileURLWithPath: job.audioPath).lastPathComponent)
+                    Text(titleText)
                         .font(.headline)
                         .lineLimit(1)
+
+                    Text(job.kind.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     Text(job.status.label)
                         .font(.caption)
@@ -81,9 +85,15 @@ struct JobProgressRow: View {
                 ProgressView(value: progressValue, total: 1)
 
                 HStack(spacing: 12) {
-                    Label(job.translationProvider.label, systemImage: "text.bubble")
+                    if job.kind == .audio {
+                        Label(job.translationProvider.label, systemImage: "text.bubble")
+                    }
                     Label(job.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
-                    Label(URL(fileURLWithPath: job.workingDirectory).lastPathComponent, systemImage: "folder")
+                    if let downloadedFilePath = job.downloadedFilePath {
+                        Label(URL(fileURLWithPath: downloadedFilePath).lastPathComponent, systemImage: "arrow.down.doc")
+                    } else {
+                        Label(URL(fileURLWithPath: job.workingDirectory).lastPathComponent, systemImage: "folder")
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -129,6 +139,15 @@ struct JobProgressRow: View {
             return 1
         case .failed:
             return job.progress ?? 0
+        }
+    }
+
+    private var titleText: String {
+        switch job.kind {
+        case .audio:
+            return URL(fileURLWithPath: job.audioPath).lastPathComponent
+        case .videoDownload:
+            return job.videoURL ?? job.audioPath
         }
     }
 

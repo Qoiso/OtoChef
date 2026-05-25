@@ -14,20 +14,38 @@ struct RecentJobsView: View {
                 ContentUnavailableView("暂无已完成任务", systemImage: "clock")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(store.completedRecentJobs) { job in
-                    JobProgressRow(
-                        job: job,
-                        onOpenOutputDirectory: {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: job.outputDirectory, isDirectory: true))
-                        },
-                        onClear: {
-                            store.clearCompletedRecentJob(id: job.id)
+                List {
+                    if !store.completedAudioJobs.isEmpty {
+                        Section("音声") {
+                            ForEach(store.completedAudioJobs) { job in
+                                recentJobRow(job)
+                            }
                         }
-                    )
+                    }
+
+                    if !store.completedVideoDownloadJobs.isEmpty {
+                        Section("视频下载") {
+                            ForEach(store.completedVideoDownloadJobs) { job in
+                                recentJobRow(job)
+                            }
+                        }
+                    }
                 }
                 .listStyle(.inset)
             }
         }
         .padding(24)
+    }
+
+    private func recentJobRow(_ job: RecentJob) -> some View {
+        JobProgressRow(
+            job: job,
+            onOpenOutputDirectory: {
+                NSWorkspace.shared.open(URL(fileURLWithPath: job.outputDirectory, isDirectory: true))
+            },
+            onClear: {
+                store.clearCompletedRecentJob(id: job.id)
+            }
+        )
     }
 }

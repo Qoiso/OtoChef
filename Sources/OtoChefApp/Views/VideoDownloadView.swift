@@ -1,81 +1,63 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
-struct NewJobView: View {
+struct VideoDownloadView: View {
     @Bindable var store: JobStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("音声")
+            Text("视频")
                 .font(.title)
                 .fontWeight(.semibold)
 
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("输入")
+                    Text("下载")
                         .font(.headline)
 
-                    fileButton(
-                        "音频",
-                        systemImage: "waveform",
-                        selectionText: selectionSummary(for: store.draft.audioURL)
-                    ) {
-                        chooseFile(allowedTypes: ["wav", "mp3", "m4a", "flac"]) { store.draft.audioURL = $0 }
-                    }
-                    fileButton(
-                        "图片",
-                        systemImage: "photo",
-                        selectionText: selectionSummary(for: store.draft.imageURL)
-                    ) {
-                        chooseFile(allowedTypes: ["png", "jpg", "jpeg", "webp"]) { store.draft.imageURL = $0 }
-                    }
-                    fileButton(
-                        "输出位置",
-                        systemImage: "folder",
-                        selectionText: outputDirectorySummary
-                    ) {
-                        chooseDirectory { store.draft.outputDirectory = $0 }
-                    }
+                    TextField("https://", text: $store.videoDraft.urlString)
+                        .textFieldStyle(.roundedBorder)
 
-                    HStack(spacing: 10) {
-                        Button {
-                            store.startProcessing(mode: .queued)
-                        } label: {
-                            Label("排队开始", systemImage: "list.bullet")
+                    Picker("下载参数", selection: $store.draft.settings.videoDownload.preset) {
+                        ForEach(VideoDownloadPreset.allCases) { preset in
+                            Text(preset.label).tag(preset)
                         }
-                        .buttonStyle(.bordered)
+                    }
+                    .pickerStyle(.menu)
 
+                    directoryButton
+
+                    HStack {
+                        Spacer()
                         Button {
-                            store.startProcessing(mode: .parallel)
+                            store.startVideoDownload()
                         } label: {
-                            Label("并行开始", systemImage: "play.fill")
+                            Label("开始下载", systemImage: "arrow.down.circle.fill")
                         }
                         .buttonStyle(.borderedProminent)
                     }
                     .padding(.top, 4)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, minHeight: 276, maxHeight: 276)
-                .panelCardStyle()
+                .videoPanelCardStyle()
 
-                JobLogPanel(logText: store.userLogText)
+                VideoDownloadLogPanel(logText: store.userLogText)
                     .frame(minHeight: 276, maxHeight: 276)
                     .frame(maxWidth: .infinity)
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("任务队列")
+                Text("下载队列")
                     .font(.headline)
 
-                if store.runningAudioJobs.isEmpty {
-                    ContentUnavailableView("暂无任务", systemImage: "list.bullet.rectangle")
+                if store.runningVideoDownloadJobs.isEmpty {
+                    ContentUnavailableView("暂无下载", systemImage: "arrow.down.circle")
                         .frame(maxWidth: .infinity, minHeight: 180)
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(store.runningAudioJobs) { job in
+                            ForEach(store.runningVideoDownloadJobs) { job in
                                 JobProgressRow(job: job, mode: .compact)
                                 Divider()
                             }
@@ -88,26 +70,18 @@ struct NewJobView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onChange(of: store.draft) {
-            store.validate()
+        .onChange(of: store.videoDraft) {
+            store.validateVideoDownload()
         }
     }
 
-    private func fileButton(
-        _ title: String,
-        systemImage: String,
-        selectionText: String?,
-        action: @escaping () -> Void
-    ) -> some View {
-        let hasSelection = selectionText != nil
-
-        return HStack(spacing: 12) {
+    private var directoryButton: some View {
+        HStack(spacing: 12) {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-
-                    if let selectionText {
-                        Text(selectionText)
+                    Text("输出位置")
+                    if let outputDirectory = store.videoDraft.outputDirectory {
+                        Text("位置: \(abbreviated(outputDirectory.path, limit: 44))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -115,13 +89,15 @@ struct NewJobView: View {
                     }
                 }
             } icon: {
-                Image(systemName: systemImage)
-                    .foregroundStyle(hasSelection ? .blue : .primary)
+                Image(systemName: "folder")
+                    .foregroundStyle(store.videoDraft.outputDirectory == nil ? Color.primary : Color.blue)
             }
 
             Spacer()
 
-            Button(action: action) {
+            Button {
+                chooseDirectory { store.videoDraft.outputDirectory = $0 }
+            } label: {
                 Text("选择")
                     .fontWeight(.semibold)
                     .foregroundStyle(.blue)
@@ -145,35 +121,11 @@ struct NewJobView: View {
         )
     }
 
-    private var outputDirectorySummary: String? {
-        guard let outputDirectory = store.draft.outputDirectory else {
-            return nil
-        }
-        return "位置: \(abbreviated(outputDirectory.path, limit: 44))"
-    }
-
-    private func selectionSummary(for url: URL?) -> String? {
-        guard let url else {
-            return nil
-        }
-        return "已选: \(abbreviated(url.lastPathComponent, limit: 22))"
-    }
-
     private func abbreviated(_ value: String, limit: Int) -> String {
         guard value.count > limit else {
             return value
         }
         return "\(value.prefix(limit))..."
-    }
-
-    private func chooseFile(allowedTypes: [String], assign: (URL) -> Void) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = allowedTypes.compactMap { UTType(filenameExtension: $0) }
-        if panel.runModal() == .OK, let url = panel.url {
-            assign(url)
-        }
     }
 
     private func chooseDirectory(assign: (URL) -> Void) {
@@ -185,10 +137,9 @@ struct NewJobView: View {
             assign(url)
         }
     }
-
 }
 
-private struct JobLogPanel: View {
+private struct VideoDownloadLogPanel: View {
     var logText: String
 
     var body: some View {
@@ -209,17 +160,17 @@ private struct JobLogPanel: View {
             .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
         }
         .padding(18)
-        .panelCardStyle()
+        .videoPanelCardStyle()
     }
 }
 
 private extension View {
-    func panelCardStyle() -> some View {
+    func videoPanelCardStyle() -> some View {
         background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.primary.opacity(0.08), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.08), radius: 14, y: 6)
+            .shadow(color: .black.opacity(0.08), radius: 18, y: 8)
     }
 }

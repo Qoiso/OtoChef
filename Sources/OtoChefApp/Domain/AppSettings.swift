@@ -6,6 +6,7 @@ struct AppSettings: Codable, Equatable {
     var conda: CondaSettings
     var tools: ToolSettings
     var video: VideoSettings
+    var videoDownload: VideoDownloadSettings
 
     static let defaults = AppSettings(
         asr: ASRSettings(
@@ -28,7 +29,10 @@ struct AppSettings: Codable, Equatable {
             retryLimit: 2
         ),
         conda: CondaSettings(executablePath: "/opt/homebrew/bin/conda", environmentName: "otochef"),
-        tools: ToolSettings(ffmpegPath: ToolSettings.defaultFFmpegPath()),
+        tools: ToolSettings(
+            ffmpegPath: ToolSettings.defaultFFmpegPath(),
+            ytDLPPath: ToolSettings.defaultYtDLPPath()
+        ),
         video: VideoSettings(
             width: 1920,
             height: 1080,
@@ -36,8 +40,45 @@ struct AppSettings: Codable, Equatable {
             backgroundColor: "black",
             subtitleOutputMode: .external,
             outputFiles: [.chineseSubtitles]
-        )
+        ),
+        videoDownload: VideoDownloadSettings(preset: .videoAudioMP4)
     )
+
+    init(
+        asr: ASRSettings,
+        translation: TranslationSettings,
+        conda: CondaSettings,
+        tools: ToolSettings,
+        video: VideoSettings,
+        videoDownload: VideoDownloadSettings = VideoDownloadSettings(preset: .videoAudioMP4)
+    ) {
+        self.asr = asr
+        self.translation = translation
+        self.conda = conda
+        self.tools = tools
+        self.video = video
+        self.videoDownload = videoDownload
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case asr
+        case translation
+        case conda
+        case tools
+        case video
+        case videoDownload
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        asr = try container.decode(ASRSettings.self, forKey: .asr)
+        translation = try container.decode(TranslationSettings.self, forKey: .translation)
+        conda = try container.decode(CondaSettings.self, forKey: .conda)
+        tools = try container.decode(ToolSettings.self, forKey: .tools)
+        video = try container.decode(VideoSettings.self, forKey: .video)
+        videoDownload = try container.decodeIfPresent(VideoDownloadSettings.self, forKey: .videoDownload)
+            ?? VideoDownloadSettings(preset: .videoAudioMP4)
+    }
 
     func resolvingAvailableToolDefaults(fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> AppSettings {
         var settings = self
@@ -342,8 +383,10 @@ struct CondaSettings: Codable, Equatable {
 struct ToolSettings: Codable, Equatable {
     static let ffmpegFullPath = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
     static let homebrewFFmpegPath = "/opt/homebrew/bin/ffmpeg"
+    static let homebrewYtDLPPath = "/opt/homebrew/bin/yt-dlp"
 
     var ffmpegPath: String
+    var ytDLPPath: String
 
     static func defaultFFmpegPath(fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> String {
         if fileExists(ffmpegFullPath) {
@@ -351,6 +394,30 @@ struct ToolSettings: Codable, Equatable {
         }
         return homebrewFFmpegPath
     }
+
+    static func defaultYtDLPPath() -> String {
+        homebrewYtDLPPath
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ffmpegPath
+        case ytDLPPath
+    }
+
+    init(ffmpegPath: String, ytDLPPath: String = ToolSettings.defaultYtDLPPath()) {
+        self.ffmpegPath = ffmpegPath
+        self.ytDLPPath = ytDLPPath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ffmpegPath = try container.decode(String.self, forKey: .ffmpegPath)
+        ytDLPPath = try container.decodeIfPresent(String.self, forKey: .ytDLPPath) ?? Self.defaultYtDLPPath()
+    }
+}
+
+struct VideoDownloadSettings: Codable, Equatable {
+    var preset: VideoDownloadPreset
 }
 
 enum ImageFit: String, Codable, Equatable {

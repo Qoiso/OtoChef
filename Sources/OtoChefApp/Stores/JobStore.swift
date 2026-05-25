@@ -4,7 +4,9 @@ import Observation
 @Observable
 final class JobStore {
     var draft = JobDraft(audioURL: nil, imageURL: nil, outputDirectory: nil, settings: .defaults)
+    var videoDraft = VideoDownloadDraft(urlString: "", outputDirectory: nil)
     var validationErrors: [JobValidationError] = []
+    var videoValidationErrors: [VideoDownloadValidationError] = []
     var events: [WorkerEvent] = []
     var logEntries: [JobLogEntry] = []
     var recentJobs: [RecentJob] = []
@@ -12,8 +14,20 @@ final class JobStore {
     var runningRecentJobs: [RecentJob] {
         recentJobs.filter { $0.status == .running }
     }
+    var runningAudioJobs: [RecentJob] {
+        runningRecentJobs.filter { $0.kind == .audio }
+    }
+    var runningVideoDownloadJobs: [RecentJob] {
+        runningRecentJobs.filter { $0.kind == .videoDownload }
+    }
     var completedRecentJobs: [RecentJob] {
         recentJobs.filter { $0.status == .finished }
+    }
+    var completedAudioJobs: [RecentJob] {
+        completedRecentJobs.filter { $0.kind == .audio }
+    }
+    var completedVideoDownloadJobs: [RecentJob] {
+        completedRecentJobs.filter { $0.kind == .videoDownload }
     }
     var developerLogText = ""
     var developerLogFileURL: URL?
@@ -36,6 +50,7 @@ final class JobStore {
     private let writer = JobFileWriter()
     private let worker: any PythonWorkerRunning
     private let transcriber: any NativeTranscriptionService
+    private let videoDownloader: any VideoDownloadRunning
     private let apiKeyStore: any APIKeyStore
     private let settingsStore: any AppSettingsStore
     private let recentJobStore: any RecentJobStore
@@ -58,6 +73,7 @@ final class JobStore {
         settingsStore: any AppSettingsStore = UserDefaultsAppSettingsStore(),
         worker: any PythonWorkerRunning = PythonWorkerClient(),
         transcriber: any NativeTranscriptionService = WhisperKitTranscriptionService(),
+        videoDownloader: any VideoDownloadRunning = VideoDownloadClient(),
         recentJobStore: any RecentJobStore = UserDefaultsRecentJobStore(),
         toolFileExists: @escaping (String) -> Bool = FileManager.default.fileExists(atPath:)
     ) {
@@ -65,6 +81,7 @@ final class JobStore {
         self.settingsStore = settingsStore
         self.worker = worker
         self.transcriber = transcriber
+        self.videoDownloader = videoDownloader
         self.recentJobStore = recentJobStore
         self.toolFileExists = toolFileExists
         self.validator = JobValidator(fileExists: toolFileExists)
@@ -77,6 +94,7 @@ final class JobStore {
             }
         }
         draft.outputDirectory = defaultOutputDirectory()
+        videoDraft.outputDirectory = draft.outputDirectory
     }
 
     func validate() {
@@ -85,6 +103,10 @@ final class JobStore {
 
     func canStart() -> Bool {
         validator.validate(draft).isEmpty
+    }
+
+    func validateVideoDownload() {
+        videoValidationErrors = validateVideoDownloadDraft()
     }
 
     func append(event: WorkerEvent) {
@@ -129,6 +151,9 @@ final class JobStore {
                 statusMessage: event.message,
                 progress: event.progress
             )
+            if event.type == .artifactCreated, let path = event.path {
+                updateRecentJob(id: jobID, downloadedFilePath: path)
+            }
         }
     }
 
@@ -203,6 +228,56 @@ final class JobStore {
                 )
             )
         }
+    }
+
+    func startVideoDownload() {
+        validateVideoDownload()
+        guard videoValidationErrors.isEmpty else {
+            for error in videoValidationErrors {
+                recordStandaloneEvent(
+                    WorkerEvent(
+                        type: .stageFailed,
+                        stage: "video_download",
+                        message: error.message,
+                        progress: nil,
+                        path: nil
+                    )
+                )
+            }
+            return
+        }
+
+        let id = UUID()
+        let outputDirectory = videoDraft.outputDirectory!
+        let workingDirectory = workingDirectory(for: id, outputDirectory: outputDirectory)
+        let request = VideoDownloadRequest(
+            id: id,
+                url: videoDraft.urlString.trimmingCharacters(in: .whitespacesAndNewlines),
+                outputDirectory: outputDirectory,
+                workingDirectory: workingDirectory,
+                preset: draft.settings.videoDownload.preset,
+                ytDLPPath: draft.settings.tools.ytDLPPath
+            )
+        resetDeveloperLog(forVideoDownload: request)
+        recordRecentJob(
+            RecentJob(
+                id: id,
+                audioPath: request.url,
+                imagePath: "",
+                outputDirectory: outputDirectory.path,
+                workingDirectory: workingDirectory.path,
+                translationProvider: draft.settings.translation.selectedProvider,
+                createdAt: Date(),
+                status: .running,
+                statusMessage: "正在下载",
+                progress: 0,
+                kind: .videoDownload,
+                videoURL: request.url
+            )
+        )
+        startVideoDownloadExecution(request)
+        videoDraft.urlString = ""
+        validateVideoDownload()
     }
 
     private func startExecution(job: OtoChefJob, artifacts: JobArtifacts) {
@@ -282,6 +357,35 @@ final class JobStore {
         }
     }
 
+    private func startVideoDownloadExecution(_ request: VideoDownloadRequest) {
+        runningJobIDs.insert(request.id)
+        isRunning = true
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try videoDownloader.run(request) { [weak self] event in
+                    DispatchQueue.main.async {
+                        self?.append(event: event, for: request.id)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.append(
+                        event: WorkerEvent(
+                            type: .stageFailed,
+                            stage: "video_download",
+                            message: error.localizedDescription,
+                            progress: nil,
+                            path: nil
+                        ),
+                        for: request.id
+                    )
+                }
+            }
+        }
+    }
+
     private func recordRecentJob(_ job: RecentJob) {
         recentJobs.removeAll { $0.id == job.id }
         recentJobs.insert(job, at: 0)
@@ -322,6 +426,14 @@ final class JobStore {
         if let progress {
             recentJobs[index].progress = progress
         }
+        saveRecentJobs()
+    }
+
+    private func updateRecentJob(id: UUID, downloadedFilePath: String) {
+        guard let index = recentJobs.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        recentJobs[index].downloadedFilePath = downloadedFilePath
         saveRecentJobs()
     }
 
@@ -395,6 +507,37 @@ final class JobStore {
         validate()
     }
 
+    private func validateVideoDownloadDraft() -> [VideoDownloadValidationError] {
+        var errors: [VideoDownloadValidationError] = []
+        let urlString = videoDraft.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if urlString.isEmpty {
+            errors.append(.missingURL)
+        } else if !isSupportedVideoURL(urlString) {
+            errors.append(.invalidURL)
+        }
+        if videoDraft.outputDirectory == nil {
+            errors.append(.missingOutputDirectory)
+        }
+        let ytDLPPath = draft.settings.tools.ytDLPPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ytDLPPath.isEmpty || !toolFileExists(ytDLPPath) {
+            errors.append(.missingYtDLP)
+        }
+        return errors
+    }
+
+    private func isSupportedVideoURL(_ value: String) -> Bool {
+        guard let url = URL(string: value), let scheme = url.scheme?.lowercased() else {
+            return false
+        }
+        return scheme == "http" || scheme == "https"
+    }
+
+    private func workingDirectory(for id: UUID, outputDirectory: URL) -> URL {
+        outputDirectory
+            .appendingPathComponent(".otochef", isDirectory: true)
+            .appendingPathComponent(id.uuidString.lowercased(), isDirectory: true)
+    }
+
     private func resetDeveloperLog(for job: OtoChefJob) {
         let logURL = URL(fileURLWithPath: job.outputDirectory, isDirectory: true)
             .appendingPathComponent(".otochef", isDirectory: true)
@@ -408,6 +551,24 @@ final class JobStore {
             "audio_path=\(job.audioPath)",
             "image_path=\(job.imagePath)",
             "output_directory=\(job.outputDirectory)",
+            ""
+        ].joined(separator: "\n")
+        writeDeveloperLog()
+    }
+
+    private func resetDeveloperLog(forVideoDownload request: VideoDownloadRequest) {
+        let logURL = request.outputDirectory
+            .appendingPathComponent(".otochef", isDirectory: true)
+            .appendingPathComponent("latest-run.log")
+        developerLogFileURL = logURL
+        developerLogJobID = request.id
+        developerLogText = [
+            "OtoChef latest run log",
+            "started_at=\(Self.iso8601String(for: Date()))",
+            "job_id=\(request.id.uuidString)",
+            "kind=video_download",
+            "url=\(request.url)",
+            "output_directory=\(request.outputDirectory.path)",
             ""
         ].joined(separator: "\n")
         writeDeveloperLog()

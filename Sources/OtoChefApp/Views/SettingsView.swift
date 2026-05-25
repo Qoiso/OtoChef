@@ -81,6 +81,7 @@ struct SettingsView: View {
                     TextField("Conda", text: $settings.conda.executablePath)
                     TextField("Conda 环境", text: $settings.conda.environmentName)
                     TextField("FFmpeg", text: $settings.tools.ffmpegPath)
+                    TextField("yt-dlp", text: $settings.tools.ytDLPPath)
                 }
 
                 Section("输出文件") {

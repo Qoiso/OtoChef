@@ -71,10 +71,23 @@ final class JobStoreTests: XCTestCase {
         store.draft.settings.translation.updateConfiguration(for: .ollama) { configuration in
             configuration.model = "saved-model"
         }
+        store.draft.settings.videoDownload.preset = .audioMP3
 
         store.saveSettings()
 
         XCTAssertEqual(try settingsStore.load()?.translation.configuration(for: .ollama).model, "saved-model")
+        XCTAssertEqual(try settingsStore.load()?.videoDownload.preset, .audioMP3)
+    }
+
+    func testInitLoadsPersistedVideoDownloadPreset() throws {
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.videoDownload.preset = .audioOpus
+        try settingsStore.save(settings)
+
+        let store = JobStore(apiKeyStore: MemoryAPIKeyStore(), settingsStore: settingsStore)
+
+        XCTAssertEqual(store.draft.settings.videoDownload.preset, .audioOpus)
     }
 
     func testInitLoadsRecentJobs() throws {
@@ -463,6 +476,91 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(store.completedRecentJobs, [finishedJob])
     }
 
+    func testCompletedRecentJobsAreSplitByTaskKind() throws {
+        let audioJob = RecentJob(
+            id: UUID(),
+            audioPath: "/tmp/audio.wav",
+            imagePath: "/tmp/image.png",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/audio",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            status: .finished,
+            statusMessage: "任务已完成",
+            progress: 1,
+            kind: .audio
+        )
+        let videoJob = RecentJob(
+            id: UUID(),
+            audioPath: "https://example.com/watch?v=abc",
+            imagePath: "",
+            outputDirectory: "/tmp/output",
+            workingDirectory: "/tmp/output/.otochef/video",
+            translationProvider: .ollama,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            status: .finished,
+            statusMessage: "下载完成",
+            progress: 1,
+            kind: .videoDownload,
+            videoURL: "https://example.com/watch?v=abc"
+        )
+        let recentJobStore = MemoryRecentJobStore()
+        try recentJobStore.save([videoJob, audioJob])
+
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: MemoryAppSettingsStore(),
+            recentJobStore: recentJobStore
+        )
+
+        XCTAssertEqual(store.completedAudioJobs, [audioJob])
+        XCTAssertEqual(store.completedVideoDownloadJobs, [videoJob])
+    }
+
+    func testStartVideoDownloadRecordsRecentJobAndRunsDownloader() async throws {
+        let downloader = CapturingVideoDownloader()
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: MemoryAppSettingsStore(),
+            videoDownloader: downloader,
+            recentJobStore: MemoryRecentJobStore(),
+            toolFileExists: { _ in true }
+        )
+        store.videoDraft.urlString = "https://example.com/watch?v=abc"
+        store.videoDraft.outputDirectory = outputDirectory
+        store.draft.settings.videoDownload.preset = .videoAudioMP4
+
+        store.startVideoDownload()
+        try await waitUntil { downloader.requests.count == 1 }
+
+        XCTAssertEqual(downloader.requests.first?.url, "https://example.com/watch?v=abc")
+        XCTAssertEqual(downloader.requests.first?.outputDirectory, outputDirectory)
+        XCTAssertEqual(downloader.requests.first?.preset, .videoAudioMP4)
+        XCTAssertEqual(store.recentJobs.first?.kind, .videoDownload)
+        XCTAssertEqual(store.recentJobs.first?.videoURL, "https://example.com/watch?v=abc")
+        XCTAssertEqual(store.recentJobs.first?.status, .running)
+        XCTAssertEqual(store.videoDraft.urlString, "")
+        XCTAssertEqual(store.videoDraft.outputDirectory, outputDirectory)
+    }
+
+    func testStartVideoDownloadLogsValidationErrorWithoutCreatingRecentJob() {
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: MemoryAppSettingsStore(),
+            videoDownloader: CapturingVideoDownloader(),
+            recentJobStore: MemoryRecentJobStore(),
+            toolFileExists: { _ in false }
+        )
+        store.videoDraft.urlString = ""
+
+        store.startVideoDownload()
+
+        XCTAssertTrue(store.recentJobs.isEmpty)
+        XCTAssertTrue(store.logEntries.contains { $0.event.message == VideoDownloadValidationError.missingURL.message })
+    }
+
     func testUserLogTextOmitsInternalJobStartAndStagePrefix() {
         let store = JobStore(apiKeyStore: MemoryAPIKeyStore(), settingsStore: MemoryAppSettingsStore())
 
@@ -628,6 +726,14 @@ private final class ControlledPythonWorker: PythonWorkerRunning {
 
     func finishRun(at index: Int, event: WorkerEvent) {
         eventHandlers[index](event)
+    }
+}
+
+private final class CapturingVideoDownloader: VideoDownloadRunning {
+    private(set) var requests: [VideoDownloadRequest] = []
+
+    func run(_ request: VideoDownloadRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
+        requests.append(request)
     }
 }
 
