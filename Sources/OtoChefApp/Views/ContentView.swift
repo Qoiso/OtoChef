@@ -3,6 +3,7 @@ import SwiftUI
 enum AppSection: String, CaseIterable, Identifiable {
     case audio = "音声"
     case video = "视频"
+    case videoDownload = "视频下载"
     case recentJobs = "最近任务"
     case settings = "设置"
     case diagnostics = "诊断"
@@ -15,6 +16,8 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .audio:
             return "waveform"
         case .video:
+            return "captions.bubble"
+        case .videoDownload:
             return "arrow.down.circle"
         case .recentJobs:
             return "clock"
@@ -69,6 +72,8 @@ struct ContentView: View {
         case .audio:
             NewJobView(store: store)
         case .video:
+            LocalVideoView(store: store)
+        case .videoDownload:
             VideoDownloadView(store: store)
         case .recentJobs:
             RecentJobsView(store: store)

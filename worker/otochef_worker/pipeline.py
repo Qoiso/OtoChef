@@ -10,7 +10,15 @@ import time
 from typing import Callable
 
 from .asr import ASRProvider
-from .ffmpeg import build_hard_subtitle_mp4_command, build_soft_subtitle_mkv_command, ffmpeg_supports_filter, probe_media_duration, run_ffmpeg
+from .ffmpeg import (
+    build_hard_subtitle_mp4_command,
+    build_hard_subtitle_source_video_mp4_command,
+    build_soft_subtitle_mkv_command,
+    build_soft_subtitle_source_video_mkv_command,
+    ffmpeg_supports_filter,
+    probe_media_duration,
+    run_ffmpeg,
+)
 from .models import Job
 from .subtitles import SubtitleSegment, render_ass, render_srt
 from .translation import RoutedTranslationProvider, TranscriptSegment, TranslationProvider, describe_translation_plan
@@ -229,14 +237,16 @@ def run_pipeline(
             emit("stage_started", stage="subtitle", message="正在生成字幕文件", progress=0.70)
         for output_file in visible_subtitle_outputs:
             if output_file == "japaneseSubtitles":
+                source_stem = "subtitles.source" if job.input_kind == "video" else "subtitles.ja"
+                source_label = "原文字幕" if job.input_kind == "video" else "日语字幕"
                 generated = _write_subtitle_files(
                     job.output_directory,
-                    "subtitles.ja",
+                    source_stem,
                     _transcript_subtitle_segments(transcript_segments),
                     job.video.width,
                     job.video.height,
                     emit,
-                    "日语字幕",
+                    source_label,
                 )
             elif output_file == "chineseSubtitles":
                 assert translated_text is not None
@@ -253,9 +263,10 @@ def run_pipeline(
                 srt_path, ass_path = generated
             else:
                 assert translated_text is not None
+                bilingual_stem = "subtitles.source-zh" if job.input_kind == "video" else "subtitles.ja-zh"
                 generated = _write_subtitle_files(
                     job.output_directory,
-                    "subtitles.ja-zh",
+                    bilingual_stem,
                     _bilingual_subtitle_segments(transcript_segments, translated_text),
                     job.video.width,
                     job.video.height,
@@ -286,29 +297,49 @@ def run_pipeline(
                 encoding="utf-8",
             )
         if subtitle_mode == "mkvSoftAss":
-            duration_seconds = probe_media_duration(job.tools.ffmpeg_path, job.audio_path)
             output_video_path = job.output_directory / "output.mkv"
-            command = build_soft_subtitle_mkv_command(
-                ffmpeg_path=job.tools.ffmpeg_path,
-                image_path=job.image_path,
-                audio_path=job.audio_path,
-                ass_path=video_ass_path,
-                output_path=output_video_path,
-                video=job.video,
-                duration_seconds=duration_seconds,
-            )
+            if job.input_kind == "video":
+                if job.source_video_path is None:
+                    raise RuntimeError("视频任务缺少源视频路径。")
+                command = build_soft_subtitle_source_video_mkv_command(
+                    ffmpeg_path=job.tools.ffmpeg_path,
+                    video_path=job.source_video_path,
+                    ass_path=video_ass_path,
+                    output_path=output_video_path,
+                )
+            else:
+                duration_seconds = probe_media_duration(job.tools.ffmpeg_path, job.audio_path)
+                command = build_soft_subtitle_mkv_command(
+                    ffmpeg_path=job.tools.ffmpeg_path,
+                    image_path=job.image_path,
+                    audio_path=job.audio_path,
+                    ass_path=video_ass_path,
+                    output_path=output_video_path,
+                    video=job.video,
+                    duration_seconds=duration_seconds,
+                )
         elif subtitle_mode == "mp4HardSubtitles":
             if not ffmpeg_supports_filter(job.tools.ffmpeg_path, "subtitles"):
                 raise RuntimeError("当前 FFmpeg 不支持 subtitles filter，无法生成 MP4 硬字幕。请安装 ffmpeg-full 或改选 MKV + ASS 软字幕。")
             output_video_path = job.output_directory / "output.mp4"
-            command = build_hard_subtitle_mp4_command(
-                ffmpeg_path=job.tools.ffmpeg_path,
-                image_path=job.image_path,
-                audio_path=job.audio_path,
-                ass_path=video_ass_path,
-                output_path=output_video_path,
-                video=job.video,
-            )
+            if job.input_kind == "video":
+                if job.source_video_path is None:
+                    raise RuntimeError("视频任务缺少源视频路径。")
+                command = build_hard_subtitle_source_video_mp4_command(
+                    ffmpeg_path=job.tools.ffmpeg_path,
+                    video_path=job.source_video_path,
+                    ass_path=video_ass_path,
+                    output_path=output_video_path,
+                )
+            else:
+                command = build_hard_subtitle_mp4_command(
+                    ffmpeg_path=job.tools.ffmpeg_path,
+                    image_path=job.image_path,
+                    audio_path=job.audio_path,
+                    ass_path=video_ass_path,
+                    output_path=output_video_path,
+                    video=job.video,
+                )
         else:
             raise RuntimeError(f"Unsupported subtitle output mode: {subtitle_mode}")
         try:

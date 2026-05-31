@@ -19,6 +19,8 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.video.height, 1080)
         XCTAssertEqual(settings.video.subtitleOutputMode, .external)
         XCTAssertEqual(settings.video.outputFiles, [.chineseSubtitles])
+        XCTAssertEqual(settings.localizedVideo.subtitleOutputMode, .mp4HardSubtitles)
+        XCTAssertEqual(settings.localizedVideo.outputFiles, [.video, .chineseSubtitles])
     }
 
     func testWhisperKitModelOptionsExposeExpectedProjectLocalModels() {
@@ -113,11 +115,24 @@ final class AppSettingsTests: XCTestCase {
         let data = try JSONEncoder().encode(AppSettings.defaults)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         object.removeValue(forKey: "videoDownload")
+        object.removeValue(forKey: "localizedVideo")
         let legacyData = try JSONSerialization.data(withJSONObject: object)
 
         let settings = try JSONDecoder().decode(AppSettings.self, from: legacyData)
 
         XCTAssertEqual(settings.videoDownload.preset, .videoAudioMP4)
+        XCTAssertEqual(settings.localizedVideo.outputFiles, [.video, .chineseSubtitles])
+    }
+
+    func testWorkerSettingsUseSeparateOutputChoicesForLocalizedVideoJobs() {
+        var settings = AppSettings.defaults
+        settings.video.outputFiles = [.japaneseSubtitles]
+        settings.localizedVideo.outputFiles = [.video, .bilingualSubtitles]
+
+        let workerSettings = settings.workerSettings(for: .video)
+
+        XCTAssertEqual(workerSettings.video.outputFiles, [.video, .bilingualSubtitles])
+        XCTAssertEqual(settings.video.outputFiles, [.japaneseSubtitles])
     }
 
     func testResolvingToolDefaultsMigratesOldDefaultFFmpegPathToFFmpegFull() {

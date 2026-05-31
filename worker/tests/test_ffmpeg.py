@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from otochef_worker.ffmpeg import build_hard_subtitle_mp4_command, build_soft_subtitle_mkv_command, ffprobe_path_for
+from otochef_worker.ffmpeg import (
+    build_hard_subtitle_mp4_command,
+    build_hard_subtitle_source_video_mp4_command,
+    build_soft_subtitle_mkv_command,
+    build_soft_subtitle_source_video_mkv_command,
+    ffprobe_path_for,
+)
 from otochef_worker.models import VideoSettings
 
 
@@ -47,3 +53,34 @@ def test_build_ffmpeg_command_can_mux_mkv_ass_soft_subtitles() -> None:
 
 def test_ffprobe_path_for_replaces_ffmpeg_binary_name() -> None:
     assert ffprobe_path_for(Path("/opt/homebrew/bin/ffmpeg")) == Path("/opt/homebrew/bin/ffprobe")
+
+
+def test_build_source_video_hard_subtitle_command_uses_video_input() -> None:
+    command = build_hard_subtitle_source_video_mp4_command(
+        ffmpeg_path=Path("/usr/local/bin/ffmpeg"),
+        video_path=Path("/tmp/source.mp4"),
+        ass_path=Path("/tmp/subtitles.zh.ass"),
+        output_path=Path("/tmp/output.mp4"),
+    )
+
+    command_text = " ".join(command)
+
+    assert command[:4] == ["/usr/local/bin/ffmpeg", "-y", "-i", "/tmp/source.mp4"]
+    assert "subtitles=filename=" in command_text
+    assert "-loop" not in command
+    assert command[-1] == "/tmp/output.mp4"
+
+
+def test_build_source_video_soft_subtitle_command_muxes_ass_without_static_image() -> None:
+    command = build_soft_subtitle_source_video_mkv_command(
+        ffmpeg_path=Path("/usr/local/bin/ffmpeg"),
+        video_path=Path("/tmp/source.mp4"),
+        ass_path=Path("/tmp/subtitles.zh.ass"),
+        output_path=Path("/tmp/output.mkv"),
+    )
+
+    assert command[:6] == ["/usr/local/bin/ffmpeg", "-y", "-i", "/tmp/source.mp4", "-i", "/tmp/subtitles.zh.ass"]
+    assert "-c:s" in command
+    assert "ass" in command
+    assert "-loop" not in command
+    assert command[-1] == "/tmp/output.mkv"

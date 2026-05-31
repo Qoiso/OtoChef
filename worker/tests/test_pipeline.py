@@ -94,6 +94,72 @@ def test_run_pipeline_writes_transcript_translation_and_subtitles(tmp_path: Path
     assert json.loads(artifacts.translation_path.read_text())["segments"][0]["text"] == "你好"
 
 
+def test_run_pipeline_burns_subtitles_into_source_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    internal_dir = tmp_path / ".otochef" / "example"
+    internal_dir.mkdir(parents=True)
+    (internal_dir / "transcript.ja.json").write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {"id": "seg-0001", "start": 0.0, "end": 1.0, "text": "Hello"}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    commands: list[list[str]] = []
+    monkeypatch.setattr("otochef_worker.pipeline.ffmpeg_supports_filter", lambda ffmpeg_path, filter_name: True)
+    monkeypatch.setattr("otochef_worker.pipeline.run_ffmpeg", lambda command: commands.append(command))
+    job = Job.from_dict(
+        {
+            "id": "example",
+            "inputKind": "video",
+            "audioPath": str(internal_dir / "source-audio.wav"),
+            "videoPath": str(tmp_path / "source.mp4"),
+            "imagePath": "",
+            "outputDirectory": str(tmp_path),
+            "workingDirectory": str(internal_dir),
+            "settings": {
+                "asr": {
+                    "backend": "whisperKit",
+                    "model": "large-v3-v20240930_626MB",
+                    "device": "coreML",
+                    "computeType": "all",
+                    "language": "",
+                    "vadEnabled": True,
+                    "beamSize": 1,
+                },
+                "translation": {
+                    "backend": "api",
+                    "endpoint": "http://localhost:11434/v1",
+                    "model": "qwen2.5:7b",
+                    "prompt": "Translate",
+                    "timeoutSeconds": 120,
+                    "retryLimit": 2,
+                },
+                "tools": {"ffmpegPath": "/opt/homebrew/bin/ffmpeg"},
+                "video": {
+                    "width": 1920,
+                    "height": 1080,
+                    "imageFit": "contain",
+                    "backgroundColor": "black",
+                    "subtitleOutputMode": "mp4HardSubtitles",
+                    "outputFiles": ["video", "chineseSubtitles"],
+                },
+            },
+        }
+    )
+
+    artifacts = run_pipeline(job, translator=FakeTranslator(), run_video=True)
+
+    assert commands
+    assert str(tmp_path / "source.mp4") in commands[0]
+    assert "-loop" not in commands[0]
+    assert (tmp_path / "subtitles.zh.srt").exists()
+    assert artifacts.output_video_path == tmp_path / "output.mp4"
+
+
 def test_run_pipeline_writes_only_japanese_subtitles_without_translation(tmp_path: Path) -> None:
     internal_dir = tmp_path / ".otochef" / "example"
     job = Job.from_dict(

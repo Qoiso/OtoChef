@@ -84,12 +84,25 @@ struct SettingsView: View {
                     TextField("yt-dlp", text: $settings.tools.ytDLPPath)
                 }
 
-                Section("输出文件") {
+                Section("音声输出文件") {
                     ForEach(OutputFile.allCases) { outputFile in
-                        Toggle(outputFile.label, isOn: outputFileBinding(outputFile))
+                        Toggle(outputFileLabel(outputFile, for: .audio), isOn: outputFileBinding(outputFile, for: .audio))
                     }
                     if settings.video.includesVideo {
-                        Picker("视频模式", selection: videoSubtitleOutputMode) {
+                        Picker("视频模式", selection: subtitleOutputMode(for: .audio)) {
+                            Text(SubtitleOutputMode.mkvSoftAss.label).tag(SubtitleOutputMode.mkvSoftAss)
+                            Text(SubtitleOutputMode.mp4HardSubtitles.label).tag(SubtitleOutputMode.mp4HardSubtitles)
+                        }
+                        .pickerStyle(.radioGroup)
+                    }
+                }
+
+                Section("视频输出文件") {
+                    ForEach(OutputFile.allCases) { outputFile in
+                        Toggle(outputFileLabel(outputFile, for: .video), isOn: outputFileBinding(outputFile, for: .video))
+                    }
+                    if settings.localizedVideo.includesVideo {
+                        Picker("视频模式", selection: subtitleOutputMode(for: .video)) {
                             Text(SubtitleOutputMode.mkvSoftAss.label).tag(SubtitleOutputMode.mkvSoftAss)
                             Text(SubtitleOutputMode.mp4HardSubtitles.label).tag(SubtitleOutputMode.mp4HardSubtitles)
                         }
@@ -137,32 +150,62 @@ struct SettingsView: View {
         selectedProvider.requiresAPIKey || selectedProvider.acceptsOptionalAPIKey || savedAPIKeyExists
     }
 
-    private var videoSubtitleOutputMode: Binding<SubtitleOutputMode> {
+    private func subtitleOutputMode(for inputKind: JobInputKind) -> Binding<SubtitleOutputMode> {
         Binding {
-            settings.video.subtitleOutputMode == .external ? .mkvSoftAss : settings.video.subtitleOutputMode
+            let mode = outputSettings(for: inputKind).subtitleOutputMode
+            return mode == .external ? .mkvSoftAss : mode
         } set: { newValue in
-            settings.video.subtitleOutputMode = newValue
+            mutateOutputSettings(for: inputKind) { outputSettings in
+                outputSettings.subtitleOutputMode = newValue
+            }
         }
     }
 
-    private func outputFileBinding(_ outputFile: OutputFile) -> Binding<Bool> {
+    private func outputFileBinding(_ outputFile: OutputFile, for inputKind: JobInputKind) -> Binding<Bool> {
         Binding {
-            settings.video.outputFiles.contains(outputFile)
+            outputSettings(for: inputKind).outputFiles.contains(outputFile)
         } set: { isSelected in
+            mutateOutputSettings(for: inputKind) { outputSettings in
             if isSelected {
-                if !settings.video.outputFiles.contains(outputFile) {
-                    settings.video.outputFiles.append(outputFile)
-                    settings.video.outputFiles = OutputFile.allCases.filter { settings.video.outputFiles.contains($0) }
+                if !outputSettings.outputFiles.contains(outputFile) {
+                    outputSettings.outputFiles.append(outputFile)
+                    outputSettings.outputFiles = OutputFile.allCases.filter { outputSettings.outputFiles.contains($0) }
                 }
-                if outputFile == .video, settings.video.subtitleOutputMode == .external {
-                    settings.video.subtitleOutputMode = .mkvSoftAss
+                if outputFile == .video, outputSettings.subtitleOutputMode == .external {
+                    outputSettings.subtitleOutputMode = .mkvSoftAss
                 }
             } else {
-                settings.video.outputFiles.removeAll { $0 == outputFile }
+                outputSettings.outputFiles.removeAll { $0 == outputFile }
                 if outputFile == .video {
-                    settings.video.subtitleOutputMode = .external
+                    outputSettings.subtitleOutputMode = .external
                 }
             }
+            }
+        }
+    }
+
+    private func outputSettings(for inputKind: JobInputKind) -> VideoSettings {
+        switch inputKind {
+        case .audio:
+            return settings.video
+        case .video:
+            return settings.localizedVideo
+        }
+    }
+
+    private func outputFileLabel(_ outputFile: OutputFile, for inputKind: JobInputKind) -> String {
+        if inputKind == .video, outputFile == .japaneseSubtitles {
+            return "原文字幕"
+        }
+        return outputFile.label
+    }
+
+    private func mutateOutputSettings(for inputKind: JobInputKind, mutate: (inout VideoSettings) -> Void) {
+        switch inputKind {
+        case .audio:
+            mutate(&settings.video)
+        case .video:
+            mutate(&settings.localizedVideo)
         }
     }
 

@@ -23,6 +23,14 @@ struct RecentJobsView: View {
                         }
                     }
 
+                    if !store.completedVideoJobs.isEmpty {
+                        Section("视频") {
+                            ForEach(store.completedVideoJobs) { job in
+                                recentJobRow(job)
+                            }
+                        }
+                    }
+
                     if !store.completedVideoDownloadJobs.isEmpty {
                         Section("视频下载") {
                             ForEach(store.completedVideoDownloadJobs) { job in

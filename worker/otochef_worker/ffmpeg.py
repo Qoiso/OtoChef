@@ -120,6 +120,67 @@ def build_soft_subtitle_mkv_command(
     return command
 
 
+def build_hard_subtitle_source_video_mp4_command(
+    ffmpeg_path: Path,
+    video_path: Path,
+    ass_path: Path,
+    output_path: Path,
+) -> list[str]:
+    video_filter = f"subtitles=filename='{_escape_filter_path(ass_path)}'"
+    return [
+        str(ffmpeg_path),
+        "-y",
+        "-i",
+        str(video_path),
+        "-vf",
+        video_filter,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-pix_fmt",
+        "yuv420p",
+        str(output_path),
+    ]
+
+
+def build_soft_subtitle_source_video_mkv_command(
+    ffmpeg_path: Path,
+    video_path: Path,
+    ass_path: Path,
+    output_path: Path,
+) -> list[str]:
+    return [
+        str(ffmpeg_path),
+        "-y",
+        "-i",
+        str(video_path),
+        "-i",
+        str(ass_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-map",
+        "1:s:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "copy",
+        "-c:s",
+        "ass",
+        "-metadata:s:s:0",
+        "language=chi",
+        str(output_path),
+    ]
+
+
 def _shared_video_audio_encoding_args() -> list[str]:
     return [
         "-c:v",

@@ -146,6 +146,8 @@ struct JobProgressRow: View {
         switch job.kind {
         case .audio:
             return URL(fileURLWithPath: job.audioPath).lastPathComponent
+        case .video:
+            return URL(fileURLWithPath: job.videoURL ?? job.audioPath).lastPathComponent
         case .videoDownload:
             return job.videoURL ?? job.audioPath
         }

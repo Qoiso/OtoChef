@@ -3,7 +3,7 @@ import Observation
 
 @Observable
 final class JobStore {
-    var draft = JobDraft(audioURL: nil, imageURL: nil, outputDirectory: nil, settings: .defaults)
+    var draft = JobDraft(inputKind: .audio, audioURL: nil, videoURL: nil, imageURL: nil, outputDirectory: nil, settings: .defaults)
     var videoDraft = VideoDownloadDraft(urlString: "", outputDirectory: nil)
     var validationErrors: [JobValidationError] = []
     var videoValidationErrors: [VideoDownloadValidationError] = []
@@ -17,6 +17,9 @@ final class JobStore {
     var runningAudioJobs: [RecentJob] {
         runningRecentJobs.filter { $0.kind == .audio }
     }
+    var runningVideoJobs: [RecentJob] {
+        runningRecentJobs.filter { $0.kind == .video }
+    }
     var runningVideoDownloadJobs: [RecentJob] {
         runningRecentJobs.filter { $0.kind == .videoDownload }
     }
@@ -25,6 +28,9 @@ final class JobStore {
     }
     var completedAudioJobs: [RecentJob] {
         completedRecentJobs.filter { $0.kind == .audio }
+    }
+    var completedVideoJobs: [RecentJob] {
+        completedRecentJobs.filter { $0.kind == .video }
     }
     var completedVideoDownloadJobs: [RecentJob] {
         completedRecentJobs.filter { $0.kind == .videoDownload }
@@ -50,6 +56,7 @@ final class JobStore {
     private let writer = JobFileWriter()
     private let worker: any PythonWorkerRunning
     private let transcriber: any NativeTranscriptionService
+    private let mediaAudioExtractor: any MediaAudioExtracting
     private let videoDownloader: any VideoDownloadRunning
     private let apiKeyStore: any APIKeyStore
     private let settingsStore: any AppSettingsStore
@@ -73,6 +80,7 @@ final class JobStore {
         settingsStore: any AppSettingsStore = UserDefaultsAppSettingsStore(),
         worker: any PythonWorkerRunning = PythonWorkerClient(),
         transcriber: any NativeTranscriptionService = WhisperKitTranscriptionService(),
+        mediaAudioExtractor: any MediaAudioExtracting = FFmpegMediaAudioExtractor(),
         videoDownloader: any VideoDownloadRunning = VideoDownloadClient(),
         recentJobStore: any RecentJobStore = UserDefaultsRecentJobStore(),
         toolFileExists: @escaping (String) -> Bool = FileManager.default.fileExists(atPath:)
@@ -81,6 +89,7 @@ final class JobStore {
         self.settingsStore = settingsStore
         self.worker = worker
         self.transcriber = transcriber
+        self.mediaAudioExtractor = mediaAudioExtractor
         self.videoDownloader = videoDownloader
         self.recentJobStore = recentJobStore
         self.toolFileExists = toolFileExists
@@ -204,7 +213,9 @@ final class JobStore {
                     status: mode == .queued && !blockers.isEmpty ? .queued : .running,
                     statusMessage: mode == .queued && !blockers.isEmpty ? "等待前序任务完成" : "正在处理",
                     progress: mode == .queued && !blockers.isEmpty ? 0 : nil,
-                    submissionMode: mode
+                    submissionMode: mode,
+                    kind: job.inputKind == .video ? .video : .audio,
+                    videoURL: job.videoPath
                 )
             )
 
@@ -289,23 +300,50 @@ final class JobStore {
         Task { [weak self] in
             guard let self else { return }
             do {
-                if job.settings.asr.backend == .whisperKit {
+                var workerJob = job
+                if job.inputKind == .video, job.settings.asr.backend == .whisperKit {
+                    let extractedAudioURL = artifacts.workingDirectory.appendingPathComponent("source-audio.wav")
                     await MainActor.run {
                         self.append(
                             event: WorkerEvent(
                                 type: .stageStarted,
-                                stage: "asr",
-                                message: "正在用 WhisperKit/Core ML 识别日语音频",
-                                progress: 0.05,
+                                stage: "ffmpeg",
+                                message: "正在从视频中提取音频",
+                                progress: 0.03,
                                 path: nil
                             ),
                             for: job.id
                         )
                     }
+                    try mediaAudioExtractor.extractAudio(
+                        from: URL(fileURLWithPath: job.videoPath ?? job.audioPath),
+                        to: extractedAudioURL,
+                        ffmpegPath: job.settings.tools.ffmpegPath
+                    )
+                    workerJob.audioPath = extractedAudioURL.path
+                    _ = try writer.write(workerJob)
+                }
+
+                let asrJob = workerJob
+                if asrJob.settings.asr.backend == .whisperKit {
+                    await MainActor.run {
+                        self.append(
+                            event: WorkerEvent(
+                                type: .stageStarted,
+                                stage: "asr",
+                                message: asrJob.inputKind == .video
+                                    ? "正在用 WhisperKit/Core ML 识别视频语音"
+                                    : "正在用 WhisperKit/Core ML 识别日语音频",
+                                progress: 0.05,
+                                path: nil
+                            ),
+                            for: asrJob.id
+                        )
+                    }
                     let transcriptURL = artifacts.workingDirectory.appendingPathComponent("transcript.ja.json")
                     try await transcriber.transcribe(
-                        audioURL: URL(fileURLWithPath: job.audioPath),
-                        settings: job.settings.asr,
+                        audioURL: URL(fileURLWithPath: asrJob.audioPath),
+                        settings: asrJob.settings.asr,
                         outputURL: transcriptURL,
                         projectRoot: projectRoot()
                     )
@@ -314,30 +352,32 @@ final class JobStore {
                             event: WorkerEvent(
                                 type: .artifactCreated,
                                 stage: "asr",
-                                message: "WhisperKit 日语转写已完成",
+                                message: asrJob.inputKind == .video
+                                    ? "WhisperKit 视频转写已完成"
+                                    : "WhisperKit 日语转写已完成",
                                 progress: 0.40,
                                 path: transcriptURL.path
                             ),
-                            for: job.id
+                            for: asrJob.id
                         )
                     }
                 }
 
-                let apiKey = job.settings.video.requiresTranslation
-                    ? try apiKeyStore.loadTranslationAPIKey(for: job.settings.translation.selectedProvider)
+                let apiKey = workerJob.settings.video.requiresTranslation
+                    ? try apiKeyStore.loadTranslationAPIKey(for: workerJob.settings.translation.selectedProvider)
                     : nil
                 let workerDirectory = projectRoot()
                     .appendingPathComponent("worker", isDirectory: true)
                 let request = WorkerLaunchRequest(
                     condaPath: job.settings.conda.executablePath,
-                    environmentName: job.settings.conda.environmentName,
+                    environmentName: workerJob.settings.conda.environmentName,
                     workerDirectory: workerDirectory,
                     jobFile: artifacts.jobFile,
                     environment: apiKey.map { ["OTOCHEF_TRANSLATION_API_KEY": $0] } ?? [:]
                 )
                 try worker.run(request) { [weak self] event in
                     DispatchQueue.main.async {
-                        self?.append(event: event, for: job.id)
+                        self?.append(event: event, for: workerJob.id)
                     }
                 }
             } catch {
@@ -503,6 +543,7 @@ final class JobStore {
 
     private func clearSubmittedMediaInputs() {
         draft.audioURL = nil
+        draft.videoURL = nil
         draft.imageURL = nil
         validate()
     }

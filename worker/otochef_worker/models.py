@@ -71,7 +71,9 @@ class VideoSettings:
 @dataclass(frozen=True)
 class Job:
     job_id: str
+    input_kind: str
     audio_path: Path
+    source_video_path: Path | None
     image_path: Path
     output_directory: Path
     working_directory: Path
@@ -91,7 +93,9 @@ class Job:
 
         return cls(
             job_id=str(payload["id"]),
+            input_kind=str(payload.get("inputKind", "audio")),
             audio_path=Path(payload["audioPath"]),
+            source_video_path=Path(payload["videoPath"]) if payload.get("videoPath") else None,
             image_path=Path(payload["imagePath"]),
             output_directory=Path(payload["outputDirectory"]),
             working_directory=Path(payload.get("workingDirectory", payload["outputDirectory"])),

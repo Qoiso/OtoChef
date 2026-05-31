@@ -4,7 +4,9 @@ import XCTest
 final class JobValidatorTests: XCTestCase {
     func testValidationFailsWhenAudioIsMissing() {
         let draft = JobDraft(
+            inputKind: .audio,
             audioURL: nil,
+            videoURL: nil,
             imageURL: URL(fileURLWithPath: "/tmp/image.png"),
             outputDirectory: URL(fileURLWithPath: "/tmp/out"),
             settings: .defaults
@@ -17,7 +19,9 @@ final class JobValidatorTests: XCTestCase {
 
     func testValidationFailsWhenSelectedPathsDoNotExist() {
         let draft = JobDraft(
+            inputKind: .audio,
             audioURL: URL(fileURLWithPath: "/tmp/audio.wav"),
+            videoURL: nil,
             imageURL: URL(fileURLWithPath: "/tmp/image.png"),
             outputDirectory: URL(fileURLWithPath: "/tmp/out"),
             settings: .defaults
@@ -36,7 +40,9 @@ final class JobValidatorTests: XCTestCase {
         var settings = AppSettings.defaults
         settings.video.outputFiles = [.video]
         let draft = JobDraft(
+            inputKind: .audio,
             audioURL: URL(fileURLWithPath: "/tmp/audio.wav"),
+            videoURL: nil,
             imageURL: URL(fileURLWithPath: "/tmp/image.png"),
             outputDirectory: URL(fileURLWithPath: "/tmp/out"),
             settings: settings
@@ -52,7 +58,9 @@ final class JobValidatorTests: XCTestCase {
         var settings = AppSettings.defaults
         settings.video.outputFiles = []
         let draft = JobDraft(
+            inputKind: .audio,
             audioURL: URL(fileURLWithPath: "/tmp/audio.wav"),
+            videoURL: nil,
             imageURL: nil,
             outputDirectory: URL(fileURLWithPath: "/tmp/out"),
             settings: settings
@@ -71,7 +79,9 @@ final class JobValidatorTests: XCTestCase {
             configuration.model = ""
         }
         let draft = JobDraft(
+            inputKind: .audio,
             audioURL: URL(fileURLWithPath: "/tmp/audio.wav"),
+            videoURL: nil,
             imageURL: nil,
             outputDirectory: URL(fileURLWithPath: "/tmp/out"),
             settings: settings
@@ -90,7 +100,9 @@ final class JobValidatorTests: XCTestCase {
             configuration.baseURL = ""
         }
         let draft = JobDraft(
+            inputKind: .audio,
             audioURL: URL(fileURLWithPath: "/tmp/audio.wav"),
+            videoURL: nil,
             imageURL: URL(fileURLWithPath: "/tmp/image.png"),
             outputDirectory: URL(fileURLWithPath: "/tmp/out"),
             settings: settings
@@ -108,7 +120,9 @@ final class JobValidatorTests: XCTestCase {
             configuration.model = ""
         }
         let draft = JobDraft(
+            inputKind: .audio,
             audioURL: URL(fileURLWithPath: "/tmp/audio.wav"),
+            videoURL: nil,
             imageURL: URL(fileURLWithPath: "/tmp/image.png"),
             outputDirectory: URL(fileURLWithPath: "/tmp/out"),
             settings: settings
@@ -117,5 +131,42 @@ final class JobValidatorTests: XCTestCase {
         let errors = JobValidator().validate(draft)
 
         XCTAssertTrue(errors.contains(.missingTranslationModel))
+    }
+
+    func testVideoValidationRequiresVideoInputButNotStaticImage() {
+        var settings = AppSettings.defaults
+        settings.localizedVideo.outputFiles = [.video]
+        let draft = JobDraft(
+            inputKind: .video,
+            audioURL: nil,
+            videoURL: URL(fileURLWithPath: "/tmp/source.mp4"),
+            imageURL: nil,
+            outputDirectory: URL(fileURLWithPath: "/tmp/out"),
+            settings: settings
+        )
+
+        let errors = JobValidator(fileExists: { $0 != "/tmp/source.mp4" }).validate(draft)
+
+        XCTAssertTrue(errors.contains(.missingVideo))
+        XCTAssertFalse(errors.contains(.missingAudio))
+        XCTAssertFalse(errors.contains(.missingImage))
+    }
+
+    func testVideoValidationUsesLocalizedVideoOutputSettings() {
+        var settings = AppSettings.defaults
+        settings.video.outputFiles = [.chineseSubtitles]
+        settings.localizedVideo.outputFiles = []
+        let draft = JobDraft(
+            inputKind: .video,
+            audioURL: nil,
+            videoURL: URL(fileURLWithPath: "/tmp/source.mp4"),
+            imageURL: nil,
+            outputDirectory: URL(fileURLWithPath: "/tmp/out"),
+            settings: settings
+        )
+
+        let errors = JobValidator(fileExists: { _ in true }).validate(draft)
+
+        XCTAssertTrue(errors.contains(.missingOutputFile))
     }
 }

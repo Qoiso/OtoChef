@@ -1,7 +1,14 @@
 import Foundation
 
+enum JobInputKind: String, Codable, Equatable {
+    case audio
+    case video
+}
+
 struct JobDraft: Equatable {
+    var inputKind: JobInputKind = .audio
     var audioURL: URL?
+    var videoURL: URL?
     var imageURL: URL?
     var outputDirectory: URL?
     var settings: AppSettings
@@ -14,7 +21,9 @@ struct VideoDownloadDraft: Equatable {
 
 struct OtoChefJob: Codable, Equatable {
     var id: UUID
+    var inputKind: JobInputKind
     var audioPath: String
+    var videoPath: String?
     var imagePath: String
     var outputDirectory: String
     var workingDirectory: String?
@@ -107,12 +116,15 @@ enum JobSubmissionMode: String, Codable, Equatable {
 
 enum RecentJobKind: String, Codable, Equatable {
     case audio
+    case video
     case videoDownload
 
     var label: String {
         switch self {
         case .audio:
             return "音声"
+        case .video:
+            return "视频"
         case .videoDownload:
             return "视频下载"
         }
@@ -225,6 +237,7 @@ struct RecentJob: Codable, Equatable, Identifiable {
 
 enum JobValidationError: String, Equatable, Identifiable {
     case missingAudio
+    case missingVideo
     case missingImage
     case missingOutputDirectory
     case missingOutputFile
@@ -241,6 +254,8 @@ enum JobValidationError: String, Equatable, Identifiable {
         switch self {
         case .missingAudio:
             return "请选择日语音频文件。"
+        case .missingVideo:
+            return "请选择视频文件。"
         case .missingImage:
             return "请选择静态图片。"
         case .missingOutputDirectory:

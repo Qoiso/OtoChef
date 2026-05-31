@@ -6,6 +6,7 @@ struct AppSettings: Codable, Equatable {
     var conda: CondaSettings
     var tools: ToolSettings
     var video: VideoSettings
+    var localizedVideo: VideoSettings
     var videoDownload: VideoDownloadSettings
 
     static let defaults = AppSettings(
@@ -41,6 +42,14 @@ struct AppSettings: Codable, Equatable {
             subtitleOutputMode: .external,
             outputFiles: [.chineseSubtitles]
         ),
+        localizedVideo: VideoSettings(
+            width: 1920,
+            height: 1080,
+            imageFit: .contain,
+            backgroundColor: "black",
+            subtitleOutputMode: .mp4HardSubtitles,
+            outputFiles: [.video, .chineseSubtitles]
+        ),
         videoDownload: VideoDownloadSettings(preset: .videoAudioMP4)
     )
 
@@ -50,6 +59,14 @@ struct AppSettings: Codable, Equatable {
         conda: CondaSettings,
         tools: ToolSettings,
         video: VideoSettings,
+        localizedVideo: VideoSettings = VideoSettings(
+            width: 1920,
+            height: 1080,
+            imageFit: .contain,
+            backgroundColor: "black",
+            subtitleOutputMode: .mp4HardSubtitles,
+            outputFiles: [.video, .chineseSubtitles]
+        ),
         videoDownload: VideoDownloadSettings = VideoDownloadSettings(preset: .videoAudioMP4)
     ) {
         self.asr = asr
@@ -57,6 +74,7 @@ struct AppSettings: Codable, Equatable {
         self.conda = conda
         self.tools = tools
         self.video = video
+        self.localizedVideo = localizedVideo
         self.videoDownload = videoDownload
     }
 
@@ -66,6 +84,7 @@ struct AppSettings: Codable, Equatable {
         case conda
         case tools
         case video
+        case localizedVideo
         case videoDownload
     }
 
@@ -76,8 +95,29 @@ struct AppSettings: Codable, Equatable {
         conda = try container.decode(CondaSettings.self, forKey: .conda)
         tools = try container.decode(ToolSettings.self, forKey: .tools)
         video = try container.decode(VideoSettings.self, forKey: .video)
+        localizedVideo = try container.decodeIfPresent(VideoSettings.self, forKey: .localizedVideo)
+            ?? AppSettings.defaults.localizedVideo
         videoDownload = try container.decodeIfPresent(VideoDownloadSettings.self, forKey: .videoDownload)
             ?? VideoDownloadSettings(preset: .videoAudioMP4)
+    }
+
+    func workerSettings(for inputKind: JobInputKind) -> AppSettings {
+        var settings = self
+        if inputKind == .video {
+            settings.video = localizedVideo
+            settings.asr.language = ""
+            settings.translation.prompt = "Translate each source-language subtitle segment into natural Simplified Chinese. Preserve IDs. Return only a JSON array of objects with id and text."
+        }
+        return settings
+    }
+
+    func outputSettings(for inputKind: JobInputKind) -> VideoSettings {
+        switch inputKind {
+        case .audio:
+            return video
+        case .video:
+            return localizedVideo
+        }
     }
 
     func resolvingAvailableToolDefaults(fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> AppSettings {

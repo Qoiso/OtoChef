@@ -9,17 +9,21 @@ struct JobValidator {
 
     func validate(_ draft: JobDraft) -> [JobValidationError] {
         var errors: [JobValidationError] = []
+        let outputSettings = draft.settings.outputSettings(for: draft.inputKind)
 
-        if draft.audioURL == nil || !fileExists(draft.audioURL?.path ?? "") {
+        if draft.inputKind == .audio && (draft.audioURL == nil || !fileExists(draft.audioURL?.path ?? "")) {
             errors.append(.missingAudio)
         }
-        if draft.settings.video.includesVideo && (draft.imageURL == nil || !fileExists(draft.imageURL?.path ?? "")) {
+        if draft.inputKind == .video && (draft.videoURL == nil || !fileExists(draft.videoURL?.path ?? "")) {
+            errors.append(.missingVideo)
+        }
+        if draft.inputKind == .audio && outputSettings.includesVideo && (draft.imageURL == nil || !fileExists(draft.imageURL?.path ?? "")) {
             errors.append(.missingImage)
         }
         if draft.outputDirectory == nil {
             errors.append(.missingOutputDirectory)
         }
-        if draft.settings.video.outputFiles.isEmpty {
+        if outputSettings.outputFiles.isEmpty {
             errors.append(.missingOutputFile)
         }
         if draft.settings.asr.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -33,14 +37,14 @@ struct JobValidator {
             errors.append(.missingCondaEnvironment)
         }
         let ffmpegPath = draft.settings.tools.ffmpegPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if draft.settings.video.includesVideo && (ffmpegPath.isEmpty || !fileExists(ffmpegPath)) {
+        if outputSettings.includesVideo && (ffmpegPath.isEmpty || !fileExists(ffmpegPath)) {
             errors.append(.missingFFmpeg)
         }
         let translationConfiguration = draft.settings.translation.activeConfiguration
-        if draft.settings.video.requiresTranslation && translationConfiguration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if outputSettings.requiresTranslation && translationConfiguration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingTranslationEndpoint)
         }
-        if draft.settings.video.requiresTranslation && translationConfiguration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if outputSettings.requiresTranslation && translationConfiguration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingTranslationModel)
         }
 
@@ -55,11 +59,13 @@ struct JobValidator {
 
         return OtoChefJob(
             id: UUID(),
-            audioPath: draft.audioURL!.path,
-            imagePath: draft.imageURL?.path ?? "",
+            inputKind: draft.inputKind,
+            audioPath: draft.inputKind == .audio ? draft.audioURL!.path : draft.videoURL!.path,
+            videoPath: draft.inputKind == .video ? draft.videoURL!.path : nil,
+            imagePath: draft.inputKind == .audio ? draft.imageURL?.path ?? "" : "",
             outputDirectory: draft.outputDirectory!.path,
             workingDirectory: nil,
-            settings: draft.settings,
+            settings: draft.settings.workerSettings(for: draft.inputKind),
             createdAt: now
         )
     }

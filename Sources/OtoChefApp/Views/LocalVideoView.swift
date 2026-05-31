@@ -2,12 +2,12 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct NewJobView: View {
+struct LocalVideoView: View {
     @Bindable var store: JobStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("音声")
+            Text("视频")
                 .font(.title)
                 .fontWeight(.semibold)
 
@@ -17,18 +17,11 @@ struct NewJobView: View {
                         .font(.headline)
 
                     fileButton(
-                        "音频",
-                        systemImage: "waveform",
-                        selectionText: selectionSummary(for: store.draft.audioURL)
+                        "视频",
+                        systemImage: "film",
+                        selectionText: selectionSummary(for: store.draft.videoURL)
                     ) {
-                        chooseFile(allowedTypes: ["wav", "mp3", "m4a", "flac"]) { store.draft.audioURL = $0 }
-                    }
-                    fileButton(
-                        "图片",
-                        systemImage: "photo",
-                        selectionText: selectionSummary(for: store.draft.imageURL)
-                    ) {
-                        chooseFile(allowedTypes: ["png", "jpg", "jpeg", "webp"]) { store.draft.imageURL = $0 }
+                        chooseFile(allowedTypes: ["mp4", "mov", "mkv", "webm", "m4v"]) { store.draft.videoURL = $0 }
                     }
                     fileButton(
                         "输出位置",
@@ -40,6 +33,7 @@ struct NewJobView: View {
 
                     HStack(spacing: 10) {
                         Button {
+                            store.draft.inputKind = .video
                             store.startProcessing(mode: .queued)
                         } label: {
                             Label("排队开始", systemImage: "list.bullet")
@@ -47,6 +41,7 @@ struct NewJobView: View {
                         .buttonStyle(.bordered)
 
                         Button {
+                            store.draft.inputKind = .video
                             store.startProcessing(mode: .parallel)
                         } label: {
                             Label("并行开始", systemImage: "play.fill")
@@ -57,11 +52,11 @@ struct NewJobView: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .padding(18)
-                .frame(maxWidth: .infinity, minHeight: 276, maxHeight: 276)
-                .panelCardStyle()
+                .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 220)
+                .localVideoPanelCardStyle()
 
-                JobLogPanel(logText: store.userLogText)
-                    .frame(minHeight: 276, maxHeight: 276)
+                LocalVideoLogPanel(logText: store.userLogText)
+                    .frame(minHeight: 220, maxHeight: 220)
                     .frame(maxWidth: .infinity)
             }
 
@@ -69,13 +64,13 @@ struct NewJobView: View {
                 Text("任务队列")
                     .font(.headline)
 
-                if store.runningAudioJobs.isEmpty {
+                if store.runningVideoJobs.isEmpty {
                     ContentUnavailableView("暂无任务", systemImage: "list.bullet.rectangle")
                         .frame(maxWidth: .infinity, minHeight: 180)
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(store.runningAudioJobs) { job in
+                            ForEach(store.runningVideoJobs) { job in
                                 JobProgressRow(job: job, mode: .compact)
                                 Divider()
                             }
@@ -89,7 +84,7 @@ struct NewJobView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            store.draft.inputKind = .audio
+            store.draft.inputKind = .video
             store.validate()
         }
         .onChange(of: store.draft) {
@@ -189,10 +184,9 @@ struct NewJobView: View {
             assign(url)
         }
     }
-
 }
 
-private struct JobLogPanel: View {
+private struct LocalVideoLogPanel: View {
     var logText: String
 
     var body: some View {
@@ -213,12 +207,12 @@ private struct JobLogPanel: View {
             .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
         }
         .padding(18)
-        .panelCardStyle()
+        .localVideoPanelCardStyle()
     }
 }
 
 private extension View {
-    func panelCardStyle() -> some View {
+    func localVideoPanelCardStyle() -> some View {
         background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)

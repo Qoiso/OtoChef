@@ -173,6 +173,35 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(store.draft.outputDirectory, outputDirectory)
     }
 
+    func testStartProcessingVideoRecordsVideoJobAndClearsVideoInput() throws {
+        let settingsStore = MemoryAppSettingsStore()
+        var settings = AppSettings.defaults
+        settings.asr.backend = .fasterWhisper
+        settings.localizedVideo.outputFiles = [.video, .bilingualSubtitles]
+        try settingsStore.save(settings)
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = JobStore(
+            apiKeyStore: MemoryAPIKeyStore(),
+            settingsStore: settingsStore,
+            worker: CapturingPythonWorker(),
+            transcriber: StubNativeTranscriptionService(),
+            recentJobStore: MemoryRecentJobStore(),
+            toolFileExists: { _ in true }
+        )
+        store.draft.inputKind = .video
+        store.draft.videoURL = URL(fileURLWithPath: "/tmp/source.mp4")
+        store.draft.outputDirectory = outputDirectory
+
+        store.startProcessing()
+
+        XCTAssertEqual(store.recentJobs.first?.kind, .video)
+        XCTAssertEqual(store.recentJobs.first?.videoURL, "/tmp/source.mp4")
+        XCTAssertEqual(store.recentJobs.first?.audioPath, "/tmp/source.mp4")
+        XCTAssertNil(store.draft.videoURL)
+        XCTAssertEqual(store.draft.outputDirectory, outputDirectory)
+    }
+
     func testStartProcessingLogsValidationErrorsWithoutCreatingJob() {
         let store = JobStore(
             apiKeyStore: MemoryAPIKeyStore(),
