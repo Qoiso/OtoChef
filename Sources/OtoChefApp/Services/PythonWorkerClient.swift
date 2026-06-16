@@ -5,6 +5,11 @@ protocol PythonWorkerRunning {
 }
 
 final class PythonWorkerClient: PythonWorkerRunning {
+    struct LaunchConfiguration: Equatable {
+        var executablePath: String
+        var arguments: [String]
+    }
+
     private let processLock = NSLock()
     private var runningProcesses: [Process] = []
     private static let inheritedEnvironmentKeys = [
@@ -31,9 +36,26 @@ final class PythonWorkerClient: PythonWorkerRunning {
         ]
     }
 
+    static func launchConfiguration(for request: WorkerLaunchRequest) -> LaunchConfiguration {
+        if let environmentPath = request.environmentPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !environmentPath.isEmpty {
+            return LaunchConfiguration(
+                executablePath: URL(fileURLWithPath: environmentPath, isDirectory: true)
+                    .appendingPathComponent("bin/python")
+                    .path,
+                arguments: ["-m", "otochef_worker", "--job", request.jobFile.path]
+            )
+        }
+        return LaunchConfiguration(
+            executablePath: request.condaPath,
+            arguments: condaArguments(environmentName: request.environmentName, jobFile: request.jobFile)
+        )
+    }
+
     static func workerEnvironment(
         base: [String: String] = ProcessInfo.processInfo.environment,
-        overrides: [String: String]
+        overrides: [String: String],
+        executableDirectory: String? = nil
     ) -> [String: String] {
         var environment: [String: String] = [:]
         for key in inheritedEnvironmentKeys {
@@ -44,15 +66,27 @@ final class PythonWorkerClient: PythonWorkerRunning {
         overrides.forEach { key, value in
             environment[key] = value
         }
+        if let executableDirectory, !executableDirectory.isEmpty {
+            let inheritedPath = environment["PATH"] ?? ""
+            environment["PATH"] = inheritedPath.isEmpty
+                ? executableDirectory
+                : "\(executableDirectory):\(inheritedPath)"
+        }
         return environment
     }
 
     func run(_ request: WorkerLaunchRequest, onEvent: @escaping (WorkerEvent) -> Void) throws {
+        let launchConfiguration = Self.launchConfiguration(for: request)
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: request.condaPath)
-        process.arguments = Self.condaArguments(environmentName: request.environmentName, jobFile: request.jobFile)
+        process.executableURL = URL(fileURLWithPath: launchConfiguration.executablePath)
+        process.arguments = launchConfiguration.arguments
         process.currentDirectoryURL = request.workerDirectory
-        process.environment = Self.workerEnvironment(overrides: request.environment)
+        process.environment = Self.workerEnvironment(
+            overrides: request.environment,
+            executableDirectory: URL(fileURLWithPath: launchConfiguration.executablePath)
+                .deletingLastPathComponent()
+                .path
+        )
 
         let outputPipe = Pipe()
         process.standardOutput = outputPipe

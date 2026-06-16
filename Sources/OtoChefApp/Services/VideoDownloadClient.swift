@@ -39,7 +39,11 @@ final class VideoDownloadClient: VideoDownloadRunning {
         process.executableURL = URL(fileURLWithPath: request.ytDLPPath)
         process.arguments = Self.arguments(for: request)
         process.currentDirectoryURL = request.outputDirectory
-        process.environment = Self.downloadEnvironment()
+        process.environment = Self.downloadEnvironment(
+            toolDirectory: URL(fileURLWithPath: request.ytDLPPath)
+                .deletingLastPathComponent()
+                .path
+        )
 
         let outputPipe = Pipe()
         process.standardOutput = outputPipe
@@ -105,12 +109,21 @@ final class VideoDownloadClient: VideoDownloadRunning {
         }
     }
 
-    private static func downloadEnvironment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+    static func downloadEnvironment(
+        base: [String: String] = ProcessInfo.processInfo.environment,
+        toolDirectory: String? = nil
+    ) -> [String: String] {
         var environment: [String: String] = [:]
         for key in ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"] {
             if let value = base[key] {
                 environment[key] = value
             }
+        }
+        if let toolDirectory, !toolDirectory.isEmpty {
+            let inheritedPath = environment["PATH"] ?? ""
+            environment["PATH"] = inheritedPath.isEmpty
+                ? toolDirectory
+                : "\(toolDirectory):\(inheritedPath)"
         }
         return environment
     }

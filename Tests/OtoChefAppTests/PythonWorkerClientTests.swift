@@ -12,6 +12,22 @@ final class PythonWorkerClientTests: XCTestCase {
         XCTAssertEqual(arguments.last, "/tmp/job.json")
     }
 
+    func testLaunchConfigurationUsesManagedEnvironmentPythonDirectly() {
+        let request = WorkerLaunchRequest(
+            condaPath: "/opt/homebrew/bin/conda",
+            environmentName: "otochef",
+            environmentPath: "/tmp/OtoChef/.otochef-runtime/envs/otochef",
+            workerDirectory: URL(fileURLWithPath: "/tmp/OtoChef/worker", isDirectory: true),
+            jobFile: URL(fileURLWithPath: "/tmp/job.json"),
+            environment: [:]
+        )
+
+        let configuration = PythonWorkerClient.launchConfiguration(for: request)
+
+        XCTAssertEqual(configuration.executablePath, "/tmp/OtoChef/.otochef-runtime/envs/otochef/bin/python")
+        XCTAssertEqual(configuration.arguments, ["-m", "otochef_worker", "--job", "/tmp/job.json"])
+    }
+
     func testWorkerEnvironmentKeepsOnlyAllowlistedParentValuesAndOverrides() {
         let environment = PythonWorkerClient.workerEnvironment(
             base: [
@@ -27,6 +43,16 @@ final class PythonWorkerClientTests: XCTestCase {
         XCTAssertEqual(environment["HOME"], "/Users/example")
         XCTAssertEqual(environment["OTOCHEF_TRANSLATION_API_KEY"], "new")
         XCTAssertNil(environment["AWS_SECRET_ACCESS_KEY"])
+    }
+
+    func testWorkerEnvironmentPrependsManagedEnvironmentBinOnlyForChildProcess() {
+        let environment = PythonWorkerClient.workerEnvironment(
+            base: ["PATH": "/usr/bin"],
+            overrides: [:],
+            executableDirectory: "/tmp/OtoChef/.otochef-runtime/envs/otochef/bin"
+        )
+
+        XCTAssertEqual(environment["PATH"], "/tmp/OtoChef/.otochef-runtime/envs/otochef/bin:/usr/bin")
     }
 
     func testWorkerEventLineBufferPreservesSplitJSONLines() throws {

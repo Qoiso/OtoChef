@@ -308,6 +308,7 @@ struct JobArtifacts: Equatable {
 struct WorkerLaunchRequest: Equatable {
     var condaPath: String
     var environmentName: String
+    var environmentPath: String?
     var workerDirectory: URL
     var jobFile: URL
     var environment: [String: String]

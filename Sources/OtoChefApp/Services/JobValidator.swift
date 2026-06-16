@@ -29,12 +29,22 @@ struct JobValidator {
         if draft.settings.asr.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append(.missingASRModel)
         }
-        let condaPath = draft.settings.conda.executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if condaPath.isEmpty || !fileExists(condaPath) {
-            errors.append(.missingCondaExecutable)
-        }
-        if draft.settings.conda.environmentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors.append(.missingCondaEnvironment)
+        let environmentPath = draft.settings.conda.environmentPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if environmentPath.isEmpty {
+            let condaPath = draft.settings.conda.executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if condaPath.isEmpty || !fileExists(condaPath) {
+                errors.append(.missingCondaExecutable)
+            }
+            if draft.settings.conda.environmentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                errors.append(.missingCondaEnvironment)
+            }
+        } else {
+            let pythonPath = URL(fileURLWithPath: environmentPath, isDirectory: true)
+                .appendingPathComponent("bin/python")
+                .path
+            if !fileExists(pythonPath) {
+                errors.append(.missingCondaExecutable)
+            }
         }
         let ffmpegPath = draft.settings.tools.ffmpegPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if outputSettings.includesVideo && (ffmpegPath.isEmpty || !fileExists(ffmpegPath)) {

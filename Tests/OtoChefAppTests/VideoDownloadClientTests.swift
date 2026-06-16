@@ -2,6 +2,17 @@ import XCTest
 @testable import OtoChefApp
 
 final class VideoDownloadClientTests: XCTestCase {
+    func testDownloadEnvironmentPrependsManagedToolDirectory() {
+        let environment = VideoDownloadClient.downloadEnvironment(
+            base: ["PATH": "/usr/bin", "HOME": "/Users/example", "SECRET": "hidden"],
+            toolDirectory: "/tmp/OtoChef/.otochef-runtime/envs/otochef/bin"
+        )
+
+        XCTAssertEqual(environment["PATH"], "/tmp/OtoChef/.otochef-runtime/envs/otochef/bin:/usr/bin")
+        XCTAssertEqual(environment["HOME"], "/Users/example")
+        XCTAssertNil(environment["SECRET"])
+    }
+
     func testArgumentsDownloadCompatibleMP4VideoAndAudioIntoOutputDirectory() {
         let request = VideoDownloadRequest(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,

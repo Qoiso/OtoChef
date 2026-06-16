@@ -371,6 +371,7 @@ final class JobStore {
                 let request = WorkerLaunchRequest(
                     condaPath: job.settings.conda.executablePath,
                     environmentName: workerJob.settings.conda.environmentName,
+                    environmentPath: workerJob.settings.conda.environmentPath,
                     workerDirectory: workerDirectory,
                     jobFile: artifacts.jobFile,
                     environment: apiKey.map { ["OTOCHEF_TRANSLATION_API_KEY": $0] } ?? [:]

@@ -711,6 +711,7 @@ final class JobStoreTests: XCTestCase {
             settingsStore: settingsStore,
             worker: worker,
             transcriber: transcriber,
+            recentJobStore: MemoryRecentJobStore(),
             toolFileExists: { _ in true }
         )
         store.draft.audioURL = URL(fileURLWithPath: "/tmp/audio.wav")

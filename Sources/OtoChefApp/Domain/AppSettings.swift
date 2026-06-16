@@ -418,6 +418,26 @@ struct TranslationSettings: Codable, Equatable {
 struct CondaSettings: Codable, Equatable {
     var executablePath: String
     var environmentName: String
+    var environmentPath: String?
+
+    init(executablePath: String, environmentName: String, environmentPath: String? = nil) {
+        self.executablePath = executablePath
+        self.environmentName = environmentName
+        self.environmentPath = environmentPath
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case executablePath
+        case environmentName
+        case environmentPath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        executablePath = try container.decode(String.self, forKey: .executablePath)
+        environmentName = try container.decode(String.self, forKey: .environmentName)
+        environmentPath = try container.decodeIfPresent(String.self, forKey: .environmentPath)
+    }
 }
 
 struct ToolSettings: Codable, Equatable {

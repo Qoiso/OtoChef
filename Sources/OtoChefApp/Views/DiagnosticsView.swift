@@ -63,6 +63,8 @@ struct DiagnosticsView: View {
         let fileManager = FileManager.default
         let condaPath = settings.conda.executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
         let ffmpegPath = settings.tools.ffmpegPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ytDLPPath = settings.tools.ytDLPPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let managedEnvironmentPath = settings.conda.environmentPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let modelBaseURL = resolveModelBaseURL(settings.asr.modelFolder)
         let modelURL = modelBaseURL.appendingPathComponent(settings.asr.model, isDirectory: true)
         let workerURL = projectRoot().appendingPathComponent("worker", isDirectory: true)
@@ -82,6 +84,16 @@ struct DiagnosticsView: View {
                 title: "FFmpeg",
                 message: ffmpegPath.isEmpty ? "未配置 FFmpeg 路径。" : ffmpegPath,
                 status: !ffmpegPath.isEmpty && fileManager.fileExists(atPath: ffmpegPath) ? .ok : .warning
+            ),
+            EnvironmentDiagnosticItem(
+                title: "yt-dlp",
+                message: ytDLPPath.isEmpty ? "未配置 yt-dlp 路径。" : ytDLPPath,
+                status: !ytDLPPath.isEmpty && fileManager.fileExists(atPath: ytDLPPath) ? .ok : .warning
+            ),
+            EnvironmentDiagnosticItem(
+                title: "项目受管环境",
+                message: managedEnvironmentPath.isEmpty ? "未使用项目受管环境。" : managedEnvironmentPath,
+                status: !managedEnvironmentPath.isEmpty && fileManager.fileExists(atPath: managedEnvironmentPath) ? .ok : .warning
             ),
             EnvironmentDiagnosticItem(
                 title: "WhisperKit 模型目录",

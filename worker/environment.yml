@@ -1,9 +1,12 @@
 name: otochef
 channels:
   - conda-forge
+  - nodefaults
 dependencies:
   - python=3.11
   - pip
   - ffmpeg
+  - yt-dlp
+  - deno
   - pip:
       - -e .[test]

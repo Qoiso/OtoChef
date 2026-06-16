@@ -18,9 +18,10 @@ OtoChef is a macOS subtitle pipeline for Japanese audio and video workflows. The
 
 - macOS 14 or newer.
 - Xcode or Xcode Command Line Tools with Swift 5.10 support.
-- Conda for the Python worker environment.
-- FFmpeg for MKV/MP4 video output. `ffmpeg-full` is recommended for MP4 hard subtitles because it includes the `subtitles` filter.
+- Network access when configuring the project-managed runtime for the first time.
 - WhisperKit/Core ML models downloaded separately.
+
+OtoChef can configure its Python worker, FFmpeg, yt-dlp, and Deno dependencies from Settings. The managed runtime is stored under the ignored project directory `.otochef-runtime/` and does not modify system Python, Homebrew, shell configuration, or existing Conda environments.
 
 ## Model Setup
 
@@ -87,7 +88,9 @@ Build the Swift app:
 swift build
 ```
 
-Create and update the Python worker environment:
+For normal app use, open Settings and click **Configure Environment**. If the project-managed environment is already complete, OtoChef detects and reuses it without reinstalling.
+
+Contributors may still create or update the legacy named Conda environment from the command line:
 
 ```sh
 script/setup_conda_env.sh

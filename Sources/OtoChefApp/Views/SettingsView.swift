@@ -2,6 +2,9 @@ import SwiftUI
 
 struct SettingsView: View {
     @Binding var settings: AppSettings
+    @State private var managedRuntimeStatus: ManagedRuntimeStatus = .missing
+    @State private var isConfiguringRuntime = false
+    @State private var managedRuntimeMessage = ""
     @State private var apiKey = ""
     @State private var savedAPIKeyExists = false
     @State private var isEditingAPIKey = false
@@ -77,7 +80,42 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("工具") {
+                Section("项目运行环境") {
+                    LabeledContent("位置") {
+                        Text(managedRuntimePaths.root.path)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    LabeledContent("状态") {
+                        Text(managedRuntimeStatus == .ready ? "已配置" : "未配置")
+                            .foregroundStyle(managedRuntimeStatus == .ready ? .green : .secondary)
+                    }
+                    if isConfiguringRuntime {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    if !managedRuntimeMessage.isEmpty {
+                        Text(managedRuntimeMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    HStack {
+                        Spacer()
+                        Button {
+                            configureManagedRuntime()
+                        } label: {
+                            Label(
+                                managedRuntimeStatus == .ready ? "环境已配置" : "一键配置环境",
+                                systemImage: managedRuntimeStatus == .ready ? "checkmark.circle" : "shippingbox"
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isConfiguringRuntime || managedRuntimeStatus == .ready)
+                    }
+                }
+
+                Section("高级工具路径") {
                     TextField("Conda", text: $settings.conda.executablePath)
                     TextField("Conda 环境", text: $settings.conda.environmentName)
                     TextField("FFmpeg", text: $settings.tools.ffmpegPath)
@@ -116,9 +154,41 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             loadAPIKeyState()
+            refreshManagedRuntimeStatus()
         }
         .onChange(of: settings.translation.selectedProvider) {
             loadAPIKeyState()
+        }
+    }
+
+    private var managedRuntimePaths: ManagedRuntimePaths {
+        ManagedRuntimePaths(projectRoot: ManagedRuntimePaths.currentProjectRoot())
+    }
+
+    private func refreshManagedRuntimeStatus() {
+        managedRuntimeStatus = managedRuntimePaths.status()
+        if managedRuntimeStatus == .ready {
+            settings = settings.applyingManagedRuntime(managedRuntimePaths)
+            managedRuntimeMessage = "已检测到项目内运行环境。"
+        }
+    }
+
+    private func configureManagedRuntime() {
+        isConfiguringRuntime = true
+        managedRuntimeMessage = "正在准备配置环境…"
+        let paths = managedRuntimePaths
+        Task {
+            do {
+                try await ManagedRuntimeInstaller().configure(paths: paths) { message in
+                    managedRuntimeMessage = message
+                }
+                settings = settings.applyingManagedRuntime(paths)
+                managedRuntimeStatus = .ready
+            } catch {
+                managedRuntimeMessage = "配置失败：\(error.localizedDescription)"
+                managedRuntimeStatus = .missing
+            }
+            isConfiguringRuntime = false
         }
     }
 

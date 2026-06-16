@@ -13,6 +13,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.asr.beamSize, 1)
         XCTAssertEqual(settings.asr.cpuThreads, 4)
         XCTAssertEqual(settings.conda.environmentName, "otochef")
+        XCTAssertNil(settings.conda.environmentPath)
         XCTAssertEqual(settings.tools.ytDLPPath, ToolSettings.homebrewYtDLPPath)
         XCTAssertEqual(settings.videoDownload.preset, .videoAudioMP4)
         XCTAssertEqual(settings.video.width, 1920)
@@ -109,6 +110,19 @@ final class AppSettingsTests: XCTestCase {
 
         XCTAssertEqual(settings.ffmpegPath, "/custom/bin/ffmpeg")
         XCTAssertEqual(settings.ytDLPPath, ToolSettings.homebrewYtDLPPath)
+    }
+
+    func testCondaSettingsDecodeDefaultsManagedEnvironmentPathForOlderSavedSettings() throws {
+        let json = """
+        {
+          "executablePath": "/opt/homebrew/bin/conda",
+          "environmentName": "otochef"
+        }
+        """
+
+        let settings = try JSONDecoder().decode(CondaSettings.self, from: Data(json.utf8))
+
+        XCTAssertNil(settings.environmentPath)
     }
 
     func testAppSettingsDecodeDefaultsVideoDownloadForOlderSavedSettings() throws {

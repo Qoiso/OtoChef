@@ -36,6 +36,29 @@ final class JobValidatorTests: XCTestCase {
         XCTAssertFalse(errors.contains(.missingFFmpeg))
     }
 
+    func testManagedEnvironmentPythonDoesNotRequireExternalConda() {
+        var settings = AppSettings.defaults
+        settings.conda.executablePath = ""
+        settings.conda.environmentName = ""
+        settings.conda.environmentPath = "/tmp/OtoChef/.otochef-runtime/envs/otochef"
+        let draft = JobDraft(
+            inputKind: .audio,
+            audioURL: URL(fileURLWithPath: "/tmp/audio.wav"),
+            videoURL: nil,
+            imageURL: nil,
+            outputDirectory: URL(fileURLWithPath: "/tmp/out"),
+            settings: settings
+        )
+
+        let errors = JobValidator(fileExists: { path in
+            path == "/tmp/audio.wav"
+                || path == "/tmp/OtoChef/.otochef-runtime/envs/otochef/bin/python"
+        }).validate(draft)
+
+        XCTAssertFalse(errors.contains(.missingCondaExecutable))
+        XCTAssertFalse(errors.contains(.missingCondaEnvironment))
+    }
+
     func testValidationFailsWhenVideoInputsDoNotExistForVideoOutput() {
         var settings = AppSettings.defaults
         settings.video.outputFiles = [.video]
